@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/u_res_0x7f0704a5"
+    android:layout_height="@dimen/u_res_0x7f0704a1"
+    style="?attr/u_res_0x7f040401"/>

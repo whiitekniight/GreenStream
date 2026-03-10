@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<androidx.leanback.preference.LeanbackSettingsRootView android:id="@id/APKTOOL_RENAMED_0x7f0b034f" android:layout_width="match_parent" android:layout_height="match_parent"
-  xmlns:android="http://schemas.android.com/apk/res/android">
-    <androidx.leanback.preference.internal.OutlineOnlyWithChildrenFrameLayout android:layout_gravity="end" android:id="@id/APKTOOL_RENAMED_0x7f0b0350" android:layout_width="@dimen/APKTOOL_RENAMED_0x7f0701d2" android:layout_height="match_parent" android:elevation="@dimen/APKTOOL_RENAMED_0x7f0701a5" android:outlineProvider="bounds" />
-</androidx.leanback.preference.LeanbackSettingsRootView>

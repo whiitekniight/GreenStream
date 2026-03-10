@@ -77,9 +77,11 @@ class SeriesDetailsActivity : AppCompatActivity() {
         val episodes = allEpisodes[seasonKey] ?: emptyList()
         rvEpisodes.adapter = EpisodeAdapter(episodes) { episode ->
             val url = "${XtreamManager.baseUrl}/series/${XtreamManager.username}/${XtreamManager.password}/${episode.id}.${episode.containerExtension ?: "mp4"}"
+            val resumeKey = "series_${seriesId}_s${seasonKey}_ep${episode.id}"
             val intent = Intent(this, MainActivity::class.java)
             intent.putExtra("play_url", url)
             intent.putExtra("media_title", episode.title)
+            intent.putExtra("resume_key", resumeKey)
             intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             startActivity(intent)
         }

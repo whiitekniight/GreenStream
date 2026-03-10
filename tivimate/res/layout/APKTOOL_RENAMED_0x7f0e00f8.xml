@@ -1,3 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<TextView android:ellipsize="marquee" android:gravity="center_vertical" android:id="@android:id/text1" android:paddingLeft="?APKTOOL_RENAMED_0x7f0403e5" android:paddingRight="?APKTOOL_RENAMED_0x7f0403e6" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="?APKTOOL_RENAMED_0x7f0403e3" style="?APKTOOL_RENAMED_0x7f0403f3"
-  xmlns:android="http://schemas.android.com/apk/res/android" />

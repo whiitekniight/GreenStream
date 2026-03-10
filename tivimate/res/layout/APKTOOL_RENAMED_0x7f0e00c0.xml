@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout android:orientation="vertical" android:layout_width="wrap_content" android:layout_height="wrap_content"
-  xmlns:android="http://schemas.android.com/apk/res/android">
-    <androidx.leanback.widget.RowHeaderView android:id="@id/APKTOOL_RENAMED_0x7f0b0328" android:layout_width="wrap_content" android:layout_height="wrap_content" android:importantForAccessibility="no" style="?APKTOOL_RENAMED_0x7f04052f" />
-    <TextView android:id="@id/APKTOOL_RENAMED_0x7f0b0329" android:layout_width="wrap_content" android:layout_height="wrap_content" android:importantForAccessibility="no" style="?APKTOOL_RENAMED_0x7f04052d" />
-</LinearLayout>

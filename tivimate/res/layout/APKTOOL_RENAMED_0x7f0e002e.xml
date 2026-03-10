@@ -1,3 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.internal.NavigationMenuItemView android:focusable="true" android:layout_width="match_parent" android:layout_height="wrap_content" android:foreground="?APKTOOL_RENAMED_0x7f040551" android:minHeight="?APKTOOL_RENAMED_0x7f0403e3" android:paddingStart="?APKTOOL_RENAMED_0x7f0403e7" android:paddingEnd="?APKTOOL_RENAMED_0x7f0403e4" android:defaultFocusHighlightEnabled="false"
-  xmlns:android="http://schemas.android.com/apk/res/android" />

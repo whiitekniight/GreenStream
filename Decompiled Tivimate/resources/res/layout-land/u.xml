@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.button.MaterialButtonToggleGroup xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="horizontal"
+    android:id="@+id/u_res_0x7f0b0273"
+    android:visibility="gone"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    app:checkedButton="@+id/u_res_0x7f0b0271"
+    app:selectionRequired="true"
+    app:singleSelection="true">
+    <Button
+        android:id="@+id/u_res_0x7f0b0271"
+        android:layout_width="0dp"
+        android:text="@string/u_res_0x7f13012b"
+        android:layout_weight="1"
+        android:insetTop="4dp"
+        android:insetBottom="4dp"
+        style="?attr/u_res_0x7f0403fd"/>
+    <Button
+        android:id="@+id/u_res_0x7f0b0272"
+        android:layout_width="0dp"
+        android:text="@string/u_res_0x7f13012f"
+        android:layout_weight="1"
+        android:insetTop="4dp"
+        android:insetBottom="4dp"
+        style="?attr/u_res_0x7f0403fd"/>
+</com.google.android.material.button.MaterialButtonToggleGroup>

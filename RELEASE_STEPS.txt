@@ -1,0 +1,107 @@
+GreenStreem Release Steps (Simple Checklist)
+===========================================
+
+Project folder:
+C:\Users\PooDoo\AndroidStudioProjects\GreenStreem
+
+--------------------------------------------------
+1) Bump app version in Android Studio
+--------------------------------------------------
+File:
+app/build.gradle.kts (Module: app)
+
+Update:
+- versionCode = (increase by 1 every release)
+- versionName = "x.y" (example: "1.6")
+
+Save file (Ctrl+S).
+
+--------------------------------------------------
+2) Build APK
+--------------------------------------------------
+PowerShell (from project folder):
+
+.\gradlew :app:assembleDebug
+
+APK output:
+app\build\outputs\apk\debug\app-debug.apk
+
+Optional: rename file for release upload:
+GreenStreem-v1.6.apk
+
+--------------------------------------------------
+3) Push latest code to GitHub
+--------------------------------------------------
+PowerShell (from project folder):
+
+git add -A
+git commit -m "Release v1.6"
+git pull --rebase origin main
+git push origin main
+
+If commit says "nothing to commit", continue with pull/push lines.
+
+--------------------------------------------------
+4) Create GitHub Release (browser)
+--------------------------------------------------
+Repo:
+https://github.com/whiitekniight/GreenStreem
+
+Steps:
+1. Click Releases -> Draft a new release
+2. Tag: v1.6
+3. Title: v1.6
+4. Drag/drop APK file into "Attach binaries"
+5. Publish release
+
+Your APK URL format:
+https://github.com/whiitekniight/GreenStreem/releases/download/v1.6/GreenStreem-v1.6.apk
+
+--------------------------------------------------
+5) Update updater JSON
+--------------------------------------------------
+File in repo:
+updates/update.json
+
+Example:
+{
+  "versionCode": 7,
+  "versionName": "1.6",
+  "apkUrl": "https://github.com/whiitekniight/GreenStreem/releases/download/v1.6/GreenStreem-v1.6.apk",
+  "notes": "Bug fixes and stability improvements"
+}
+
+Important:
+- versionCode in JSON must match app versionCode.
+- APK URL must match uploaded filename exactly.
+
+Commit JSON change:
+git add updates/update.json
+git commit -m "Update feed for v1.6"
+git pull --rebase origin main
+git push origin main
+
+--------------------------------------------------
+6) Test updater in app
+--------------------------------------------------
+On Shield:
+Settings -> Check for update now
+
+If update found:
+- Download
+- Install
+- Relaunch app
+
+--------------------------------------------------
+Troubleshooting
+--------------------------------------------------
+- "failed to push":
+  git pull --rebase origin main
+  git push origin main
+
+- "failed to download update":
+  Check updates/update.json URL and filename spelling.
+
+- Update keeps showing again:
+  Ensure app versionCode < JSON versionCode only when update is actually newer.
+

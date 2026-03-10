@@ -12,8 +12,10 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AlertDialog
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.launch
 import java.security.MessageDigest
 
 class SettingsActivity : AppCompatActivity() {
@@ -24,17 +26,18 @@ class SettingsActivity : AppCompatActivity() {
     private val prefs by lazy { getSharedPreferences("iptv_prefs", MODE_PRIVATE) }
 
     private val settingsList = listOf(
-        SettingItem("Playlists", "Manage your IPTV playlists and sources.", android.R.drawable.ic_menu_slideshow),
-        SettingItem("TV Guide", "EPG sources, update behavior, and guide display.", android.R.drawable.ic_menu_today),
-        SettingItem("General", "Configure app behavior and global options.", android.R.drawable.ic_menu_preferences),
-        SettingItem("Playback", "Playback, startup, and stream behavior.", android.R.drawable.ic_media_play),
-        SettingItem("Channel Sorting", "Choose and configure live channel sort mode.", android.R.drawable.ic_menu_sort_alphabetically),
+        SettingItem("Playlists", "Manage playlists and login sources.", android.R.drawable.ic_menu_slideshow),
+        SettingItem("TV Guide", "EPG sources, update behavior, and display options.", android.R.drawable.ic_menu_today),
+        SettingItem("Playback", "Player behavior, startup, and stream options.", android.R.drawable.ic_media_play),
+        SettingItem("General", "Core app behavior and global options.", android.R.drawable.ic_menu_preferences),
+        SettingItem("Appearance", "Theme and layout preferences.", android.R.drawable.ic_menu_gallery),
+        SettingItem("Remote Control", "Remote keys and navigation behavior.", android.R.drawable.ic_menu_directions),
+        SettingItem("Parental Control", "PIN and content restrictions.", android.R.drawable.ic_lock_lock),
+        SettingItem("Channel Sorting", "Choose and configure channel sort mode.", android.R.drawable.ic_menu_sort_alphabetically),
         SettingItem("Group Sorting", "Reorder channel groups.", android.R.drawable.ic_menu_sort_by_size),
-        SettingItem("Appearance", "Themes, colors, and layout options.", android.R.drawable.ic_menu_gallery),
-        SettingItem("Remote Control", "Configure remote keys and navigation behavior.", android.R.drawable.ic_menu_directions),
-        SettingItem("Parental Control", "Set restrictions and passwords.", android.R.drawable.ic_lock_lock),
-        SettingItem("Channel Groups", "Hide or show channel groups.", android.R.drawable.ic_menu_sort_by_size),
-        SettingItem("Other", "Data, logs, and maintenance options.", android.R.drawable.ic_menu_manage),
+        SettingItem("Manage Groups", "Hide or show channel groups.", android.R.drawable.ic_menu_sort_by_size),
+        SettingItem("Updates", "Check for new GreenStreem versions.", android.R.drawable.stat_sys_download_done),
+        SettingItem("Maintenance", "Backup, restore, and maintenance tools.", android.R.drawable.ic_menu_manage),
         SettingItem("About", "Version info, licenses, and project details.", android.R.drawable.ic_menu_info_details)
     )
 
@@ -64,8 +67,11 @@ class SettingsActivity : AppCompatActivity() {
                 "Appearance" -> openAdvanced(AdvancedSettingsActivity.Section.APPEARANCE.id)
                 "Remote Control" -> openAdvanced(AdvancedSettingsActivity.Section.REMOTE_CONTROL.id)
                 "Parental Control" -> openAdvanced(AdvancedSettingsActivity.Section.PARENTAL_CONTROL.id)
-                "Channel Groups" -> startActivity(Intent(this, ManageGroupsActivity::class.java))
-                "Other" -> openAdvanced(AdvancedSettingsActivity.Section.OTHER.id)
+                "Manage Groups" -> startActivity(Intent(this, ManageGroupsActivity::class.java))
+                "Updates" -> lifecycleScope.launch {
+                    AppUpdater.checkForUpdates(this@SettingsActivity, manual = true)
+                }
+                "Maintenance" -> openAdvanced(AdvancedSettingsActivity.Section.OTHER.id)
                 "About" -> openAdvanced(AdvancedSettingsActivity.Section.ABOUT.id)
             }
         }

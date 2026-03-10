@@ -10,6 +10,7 @@
     android:gravity="center_vertical"
     android:paddingStart="10dp"
     android:paddingEnd="10dp"
+    android:focusable="true"
     android:background="#2A2A2A"
     android:text="Program"
     android:textColor="#FFFFFF"

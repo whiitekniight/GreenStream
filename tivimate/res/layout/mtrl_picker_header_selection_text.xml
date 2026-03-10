@@ -1,3 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<TextView android:gravity="start|bottom" android:id="@id/APKTOOL_RENAMED_0x7f0b02aa" android:layout_width="match_parent" android:layout_height="wrap_content" app:APKTOOL_RENAMED_0x7f040054="APKTOOL_RENAMED_0x7f0b0416" app:APKTOOL_RENAMED_0x7f040278="@dimen/APKTOOL_RENAMED_0x7f0704bb" app:APKTOOL_RENAMED_0x7f0403cf="@dimen/APKTOOL_RENAMED_0x7f0704ad" style="?APKTOOL_RENAMED_0x7f040408"
-  xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" />

@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout android:id="@id/APKTOOL_RENAMED_0x7f0b008d" android:layout_width="@dimen/APKTOOL_RENAMED_0x7f0700ef" android:layout_height="match_parent" android:paddingEnd="@dimen/APKTOOL_RENAMED_0x7f0700ea" android:transitionGroup="true" android:elevation="@dimen/APKTOOL_RENAMED_0x7f0700f0"
-  xmlns:android="http://schemas.android.com/apk/res/android">
-    <androidx.leanback.widget.VerticalGridView android:id="@id/APKTOOL_RENAMED_0x7f0b008b" android:layout_width="@dimen/APKTOOL_RENAMED_0x7f0700ef" android:layout_height="match_parent" style="?APKTOOL_RENAMED_0x7f0402fe" />
-    <View android:id="@id/APKTOOL_RENAMED_0x7f0b0192" android:background="@drawable/APKTOOL_RENAMED_0x7f080182" android:layout_width="@dimen/APKTOOL_RENAMED_0x7f0700e8" android:layout_height="match_parent" android:layout_alignParentEnd="true" />
-</RelativeLayout>

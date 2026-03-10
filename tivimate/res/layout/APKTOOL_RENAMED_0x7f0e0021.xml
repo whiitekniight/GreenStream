@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="match_parent" android:layout_height="match_parent"
-  xmlns:android="http://schemas.android.com/apk/res/android">
-    <TextView android:textSize="18.0sp" android:textColor="@color/APKTOOL_RENAMED_0x7f060054" android:gravity="center" android:id="@id/APKTOOL_RENAMED_0x7f0b025c" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/APKTOOL_RENAMED_0x7f13004e" />
-    <EditText android:id="@id/APKTOOL_RENAMED_0x7f0b025b" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/APKTOOL_RENAMED_0x7f070060" android:hint="@string/APKTOOL_RENAMED_0x7f13004c" android:singleLine="true" />
-    <Button android:id="@id/APKTOOL_RENAMED_0x7f0b025d" android:layout_marginTop="@dimen/APKTOOL_RENAMED_0x7f070060" android:text="@string/APKTOOL_RENAMED_0x7f130050" style="@style/APKTOOL_RENAMED_0x7f14017f" />
-</LinearLayout>

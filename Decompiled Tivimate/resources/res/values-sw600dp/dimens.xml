@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="u_res_0x7f070000">24dp</dimen>
+    <dimen name="u_res_0x7f070001">80dp</dimen>
+    <dimen name="u_res_0x7f070002">64dp</dimen>
+    <dimen name="u_res_0x7f070003">8dp</dimen>
+    <dimen name="u_res_0x7f070004">8dp</dimen>
+    <dimen name="u_res_0x7f070017">580dp</dimen>
+    <dimen name="u_res_0x7f07008b">320dp</dimen>
+    <dimen name="u_res_0x7f07008e">0dp</dimen>
+    <dimen name="u_res_0x7f070090">2dp</dimen>
+    <dimen name="u_res_0x7f070092">24dp</dimen>
+    <dimen name="u_res_0x7f070093">576dp</dimen>
+    <dimen name="u_res_0x7f070094">320dp</dimen>
+    <dimen name="u_res_0x7f070097">@dimen/u_res_0x7f070096</dimen>
+    <dimen name="u_res_0x7f07009a">160dp</dimen>
+    <dimen name="u_res_0x7f070482">64dp</dimen>
+    <dimen name="u_res_0x7f07052e">64dp</dimen>
+</resources>

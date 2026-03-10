@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/u_res_0x7f0b00d6"
+    android:fitsSystemWindows="true"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <androidx.coordinatorlayout.widget.CoordinatorLayout
+        android:id="@+id/u_res_0x7f0b0105"
+        android:fitsSystemWindows="true"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+        <View
+            android:id="@+id/u_res_0x7f0b03b7"
+            android:focusable="false"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:soundEffectsEnabled="false"
+            android:importantForAccessibility="no"/>
+        <FrameLayout
+            android:layout_gravity="top|center_horizontal"
+            android:id="@+id/u_res_0x7f0b011c"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:layout_behavior="@string/u_res_0x7f130027"
+            style="?attr/u_res_0x7f040093"/>
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>
+    <androidx.core.view.insets.ProtectionLayout
+        android:id="@+id/u_res_0x7f0b031a"
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+</FrameLayout>

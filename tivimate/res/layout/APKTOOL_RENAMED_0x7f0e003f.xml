@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout android:orientation="horizontal" android:background="?android:selectableItemBackground" android:layout_width="match_parent" android:layout_height="wrap_content" android:minWidth="@dimen/APKTOOL_RENAMED_0x7f0700ad" android:minHeight="@dimen/APKTOOL_RENAMED_0x7f0700ae" android:layoutDirection="locale"
-  xmlns:android="http://schemas.android.com/apk/res/android">
-    <ImageView android:id="@id/APKTOOL_RENAMED_0x7f0b016d" android:layout_width="@dimen/APKTOOL_RENAMED_0x7f0700af" android:layout_height="@dimen/APKTOOL_RENAMED_0x7f0700af" android:layout_marginLeft="8.0dp" android:layout_marginTop="12.0dp" android:layout_marginRight="8.0dp" />
-    <LinearLayout android:gravity="start|center" android:orientation="vertical" android:paddingRight="4.0dp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginLeft="2.0dp" android:layout_marginRight="2.0dp" android:minHeight="@dimen/APKTOOL_RENAMED_0x7f0700ae" android:layoutDirection="locale" android:paddingEnd="4.0dp">
-        <TextView android:textSize="@dimen/APKTOOL_RENAMED_0x7f0700b0" android:textColor="@color/APKTOOL_RENAMED_0x7f0600ac" android:id="@id/APKTOOL_RENAMED_0x7f0b016f" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textDirection="locale" />
-        <TextView android:textSize="@dimen/APKTOOL_RENAMED_0x7f0700b2" android:textColor="@color/APKTOOL_RENAMED_0x7f0600ad" android:id="@id/APKTOOL_RENAMED_0x7f0b0185" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textDirection="locale" />
-    </LinearLayout>
-</LinearLayout>

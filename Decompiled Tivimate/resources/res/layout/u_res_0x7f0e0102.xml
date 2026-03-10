@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="horizontal"
+    android:id="@+id/u_res_0x7f0b0292"
+    android:paddingTop="@dimen/u_res_0x7f0704b7"
+    android:paddingBottom="@dimen/u_res_0x7f0704b5"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+    <FrameLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1">
+        <com.google.android.material.button.MaterialButton
+            android:gravity="start|center_vertical"
+            android:layout_gravity="start"
+            android:id="@+id/u_res_0x7f0b0293"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/u_res_0x7f0704b6"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:accessibilityLiveRegion="polite"
+            app:icon="@drawable/u_res_0x7f0801c8"
+            app:iconGravity="0x4"
+            app:iconPadding="4dp"
+            style="?attr/u_res_0x7f04040f"/>
+    </FrameLayout>
+    <com.google.android.material.button.MaterialButton
+        android:gravity="center"
+        android:id="@+id/u_res_0x7f0b0295"
+        android:layout_width="@dimen/u_res_0x7f0704eb"
+        android:layout_height="@dimen/u_res_0x7f0704b6"
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
+        android:contentDescription="@string/u_res_0x7f130147"
+        app:icon="@drawable/u_res_0x7f0801c6"
+        style="?attr/u_res_0x7f04040c"/>
+    <com.google.android.material.button.MaterialButton
+        android:gravity="center"
+        android:id="@+id/u_res_0x7f0b0294"
+        android:layout_width="@dimen/u_res_0x7f0704eb"
+        android:layout_height="@dimen/u_res_0x7f0704b6"
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
+        android:contentDescription="@string/u_res_0x7f130146"
+        app:icon="@drawable/u_res_0x7f0801c5"
+        style="?attr/u_res_0x7f04040c"/>
+</LinearLayout>

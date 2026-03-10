@@ -47,10 +47,6 @@ class AdvancedSettingsActivity : AppCompatActivity() {
                         val url = prefs.getString("secondary_epg_url", "")?.trim().orEmpty()
                         if (url.isBlank()) "${spec.title}: Not set" else "${spec.title}: Set"
                     }
-                    "update_feed_url" -> {
-                        val url = prefs.getString("update_feed_url", "")?.trim().orEmpty()
-                        if (url.isBlank()) "${spec.title}: Not set" else "${spec.title}: Set"
-                    }
                     else -> spec.title
                 }
             }
@@ -98,11 +94,16 @@ class AdvancedSettingsActivity : AppCompatActivity() {
                 prefs.edit().putBoolean("epg_force_refresh_now", true).apply()
                 Toast.makeText(this, "EPG update requested", Toast.LENGTH_SHORT).show()
             }
-            "update_feed_url" -> showUpdateFeedUrlDialog()
-            "use_default_update_feed" -> {
-                prefs.edit().putString("update_feed_url", DEFAULT_UPDATE_FEED_URL).apply()
-                Toast.makeText(this, "GreenStreem update feed URL set", Toast.LENGTH_SHORT).show()
-                render()
+            "clear_epg" -> {
+                AlertDialog.Builder(this)
+                    .setTitle("Clear EPG")
+                    .setMessage("This will remove all cached EPG data. It will be re-downloaded on next update.")
+                    .setPositiveButton("Clear") { _, _ ->
+                        prefs.edit().putBoolean("epg_clear_requested", true).apply()
+                        Toast.makeText(this, "EPG will be cleared on next launch", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
             }
             "check_app_updates" -> lifecycleScope.launch {
                 AppUpdater.checkForUpdates(this@AdvancedSettingsActivity, manual = true)
@@ -126,8 +127,6 @@ class AdvancedSettingsActivity : AppCompatActivity() {
                 }
             }
             "app_version" -> showAppVersion()
-            "licenses" -> showOpenSourceLicenses()
-            "website" -> openWebsite()
             else -> Toast.makeText(this, "Action not implemented yet", Toast.LENGTH_SHORT).show()
         }
     }
@@ -222,30 +221,6 @@ class AdvancedSettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun showOpenSourceLicenses() {
-        val message = "This app uses open-source libraries including:\n" +
-            "- AndroidX\n" +
-            "- Media3 ExoPlayer\n" +
-            "- Retrofit\n" +
-            "- OkHttp\n" +
-            "- Room\n" +
-            "- Glide"
-        AlertDialog.Builder(this)
-            .setTitle("Open-source licenses")
-            .setMessage(message)
-            .setPositiveButton("OK", null)
-            .show()
-    }
-
-    private fun openWebsite() {
-        val url = "https://github.com/"
-        runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        }.onFailure {
-            Toast.makeText(this, "Unable to open website", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     private fun hashPin(pin: String): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(pin.toByteArray(Charsets.UTF_8))
         return bytes.joinToString("") { "%02x".format(it) }
@@ -275,28 +250,6 @@ class AdvancedSettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun showUpdateFeedUrlDialog() {
-        val input = EditText(this).apply {
-            hint = "https://.../update.json"
-            setSingleLine(true)
-            setText(prefs.getString("update_feed_url", "") ?: "")
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Update feed URL")
-            .setView(input)
-            .setPositiveButton("Save") { _, _ ->
-                val value = input.text?.toString()?.trim().orEmpty()
-                prefs.edit().putString("update_feed_url", value).apply()
-                render()
-            }
-            .setNegativeButton("Cancel", null)
-            .setNeutralButton("Clear") { _, _ ->
-                prefs.edit().remove("update_feed_url").apply()
-                render()
-            }
-            .show()
-    }
-
     private fun buildSpecs(section: Section): List<Spec> {
         return when (section) {
             Section.GENERAL -> listOf(
@@ -304,6 +257,9 @@ class AdvancedSettingsActivity : AppCompatActivity() {
                 Spec.Toggle("general_confirm_exit", "Confirm app exit", false),
                 Spec.Choice("general_time_format", "Time format", listOf("12-hour", "24-hour"), 0),
                 Spec.Toggle("general_show_clock", "Show clock in UI", true),
+                Spec.Toggle("general_show_date_clock", "Show date on clock", false),
+                Spec.Choice("general_panels_timeout", "Panels timeout", listOf("2 sec", "4 sec", "6 sec", "8 sec", "10 sec"), 2),
+                Spec.Choice("general_popup_timeout", "Popup timeout", listOf("2 sec", "4 sec", "6 sec", "8 sec", "10 sec"), 2),
                 Spec.Toggle("general_open_last_group", "Open last group on startup", true),
                 Spec.Toggle("general_resume_last_channel", "Resume last channel", true),
                 Spec.Toggle("general_show_channel_numbers", "Show channel numbers", true)
@@ -311,14 +267,17 @@ class AdvancedSettingsActivity : AppCompatActivity() {
             Section.EPG -> listOf(
                 Spec.Toggle("epg_auto_update", "Auto update EPG", true),
                 Spec.Toggle("epg_update_on_start", "Update EPG on app start", true),
-                Spec.Choice("epg_days", "Guide days", listOf("1 day", "2 days", "3 days"), 2),
                 Spec.Choice("epg_update_interval", "EPG update interval", listOf("2 hours", "6 hours", "12 hours", "24 hours"), 2),
-                Spec.Choice("epg_past_hours", "EPG past range", listOf("1 hour", "3 hours", "6 hours", "12 hours"), 1),
-                Spec.Choice("epg_future_hours", "EPG future range", listOf("12 hours", "24 hours", "48 hours", "72 hours"), 1),
+                Spec.Choice("epg_past_days", "Past days to keep EPG", listOf("1 day", "2 days", "3 days", "7 days"), 1),
+                Spec.Choice("epg_time_offset", "EPG time offset", listOf("-2h", "-1h", "-0:30", "0 (default)", "+0:30", "+1h", "+2h"), 3),
+                Spec.Toggle("epg_prefer_logos", "Prefer logos from EPG", false),
+                Spec.Toggle("epg_show_past_no_catchup", "Show past programs without catch-up", true),
+                Spec.Toggle("epg_catchup_icon", "Show catch-up icon in channels list", true),
                 Spec.Toggle("epg_show_now_line", "Show now-time line", true),
                 Spec.Toggle("epg_color_by_progress", "Color current progress", true),
                 Spec.Toggle("epg_click_to_play", "Guide click starts playback", true),
                 Spec.Action("Update EPG now", "update_epg_now"),
+                Spec.Action("Clear EPG", "clear_epg"),
                 Spec.Toggle("secondary_epg_enabled", "Use secondary EPG fallback", false),
                 Spec.Action("Secondary EPG URL", "secondary_epg_url")
             )
@@ -327,7 +286,9 @@ class AdvancedSettingsActivity : AppCompatActivity() {
                 Spec.Choice("appearance_logo_size", "Channel logo size", listOf("Small", "Medium", "Large"), 1),
                 Spec.Choice("appearance_list_density", "List density", listOf("Compact", "Comfortable", "Large"), 1),
                 Spec.Choice("appearance_accent", "Accent color", listOf("Green", "Blue", "Orange"), 0),
+                Spec.Choice("appearance_ui_transparency", "User interface transparency", listOf("0%", "20%", "40%", "60%", "80%"), 1),
                 Spec.Toggle("appearance_show_logos", "Show channel logos", true),
+                Spec.Toggle("appearance_show_video_resolution", "Show video resolution instead of labels", false),
                 Spec.Toggle("appearance_enable_animations", "Enable UI animations", true)
             )
             Section.REMOTE_CONTROL -> listOf(
@@ -341,6 +302,7 @@ class AdvancedSettingsActivity : AppCompatActivity() {
             Section.PARENTAL_CONTROL -> listOf(
                 Spec.Toggle("parental_enabled", "Enable parental control", false),
                 Spec.Toggle("parental_lock_settings", "Lock settings with PIN", false),
+                Spec.Toggle("parental_no_pin_after_unlock", "Don't require PIN after unlocking", false),
                 Spec.Toggle("parental_hide_adult_groups", "Hide adult groups", false),
                 Spec.Toggle("parental_lock_vod", "Lock VOD content", false),
                 Spec.Action("Set/Change PIN", "set_parental_pin")
@@ -350,15 +312,11 @@ class AdvancedSettingsActivity : AppCompatActivity() {
                 Spec.Action("Clear playback history", "clear_history"),
                 Spec.Toggle("other_enable_logs", "Enable debug logs", false),
                 Spec.Toggle("updater_auto_check", "Auto check app updates", true),
-                Spec.Action("Use GreenStreem feed URL", "use_default_update_feed"),
-                Spec.Action("Update feed URL", "update_feed_url"),
                 Spec.Action("Check for app updates now", "check_app_updates"),
                 Spec.Action("Backup & Restore", "open_backup_restore")
             )
             Section.ABOUT -> listOf(
-                Spec.Action("App version", "app_version"),
-                Spec.Action("Open-source licenses", "licenses"),
-                Spec.Action("Website", "website")
+                Spec.Action("App version", "app_version")
             )
         }
     }
@@ -386,7 +344,5 @@ class AdvancedSettingsActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_SECTION = "section"
         private const val KEY_PARENTAL_PIN_HASH = "parental_pin_hash"
-        private const val DEFAULT_UPDATE_FEED_URL =
-            "https://raw.githubusercontent.com/whiitekniight/GreenStreem/main/updates/update.json"
     }
 }

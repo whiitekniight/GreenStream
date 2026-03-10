@@ -56,6 +56,16 @@
             android:src="@drawable/ic_now_playing_triangle"
             android:contentDescription="@null"
             android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/ivCatchupIndicator"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="2dp"
+            android:src="@drawable/ic_catchup_clock"
+            android:contentDescription="@null"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!-- Right: Programs (Horizontally Scrollable) -->

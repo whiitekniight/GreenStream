@@ -22,6 +22,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.C
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
@@ -32,8 +33,11 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
+import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -84,6 +88,7 @@ class MainActivity : FragmentActivity() {
     private var currentChannel: Channel? = null
     private var currentAspectRatioMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
     private var previousChannel: Channel? = null
+    private var currentVodResumeKey: String? = null
 
     private var lastCategoryPosition = 0
     private var lastGridPosition = 0
@@ -96,6 +101,13 @@ class MainActivity : FragmentActivity() {
     private var miniInfoRunnable: Runnable? = null
     private val zapBarHandler = Handler(Looper.getMainLooper())
     private var zapBarRunnable: Runnable? = null
+    private val epgUiUpdateHandler = Handler(Looper.getMainLooper())
+    private var epgUiFlushRunnable: Runnable? = null
+    private val pendingEpgUiUpdates = LinkedHashMap<Int, List<XtreamEpgListing>>()
+    private var isRvContentScrolling = false
+    private var epgUiSuppressUntilMs = 0L
+    private val epgUiSuppressDuringNavMs = 350L
+    private var epgFocusRequestToken = 0
     private val uiTickHandler = Handler(Looper.getMainLooper())
     private var uiTickRunnable: Runnable? = null
     private val sleepTimerHandler = Handler(Looper.getMainLooper())
@@ -104,6 +116,12 @@ class MainActivity : FragmentActivity() {
     private val pendingEpgCalls = mutableListOf<Call<XtreamEpgResponse>>()
     private val epgCacheByStreamId = LinkedHashMap<Int, List<XtreamEpgListing>>()
     private val epgInFlightStreamIds = mutableSetOf<Int>()
+    private val epgQueuedStreamIds = mutableSetOf<Int>()
+    private val epgFetchQueue = ArrayDeque<Pair<Channel, Boolean>>()
+    private var epgActiveFetchCount = 0
+    private val maxConcurrentEpgFetches = 6
+    private val epgDiskCacheTtlMs = 24L * 60L * 60L * 1000L
+    private val gson by lazy { Gson() }
     private val liveStreamsPrefetchInFlight = mutableSetOf<String>()
     private val doubleBackWindowMs = 500L
     private var miniInfoTimeoutMs = 4000L
@@ -117,6 +135,7 @@ class MainActivity : FragmentActivity() {
     private var currentLiveChannels: List<Channel> = emptyList()
     private var currentLiveChannelIndex: Int = -1
     private var currentLiveCategoryId: String? = null
+    private var returnToPlayingChannelOnNextGridOpen = false
     private var pendingEpgRefresh = false
     private var pendingEpgRefreshUserRequested = false
     private var isChannelVisibilityEditMode = false
@@ -251,6 +270,14 @@ class MainActivity : FragmentActivity() {
                 if (isChannelVisibilityEditMode) toggleChannelVisibilitySelection(channel)
             }
         )
+        rvContent.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                isRvContentScrolling = newState != RecyclerView.SCROLL_STATE_IDLE
+                if (!isRvContentScrolling) {
+                    flushPendingEpgUiUpdates()
+                }
+            }
+        })
 
         initializePlayer()
         setupDynamicTimeRuler()
@@ -269,6 +296,8 @@ class MainActivity : FragmentActivity() {
         val playChannelExtra = intent.getSerializableExtra("play_channel") as? Channel
         if (playChannelExtra != null) {
             playChannel(playChannelExtra)
+        } else if (handleExternalPlaybackIntent(intent)) {
+            // handled by external VOD/series playback intent
         } else {
             val lastId = prefs.getLong("last_channel_id", -1L)
             if (lastId != -1L && prefs.getBoolean(KEY_AUTOPLAY_LAST_CHANNEL, true)) {
@@ -284,6 +313,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
+        saveVodResumeProgress()
         player?.pause()
     }
 
@@ -297,6 +327,12 @@ class MainActivity : FragmentActivity() {
             prefs.edit().putBoolean(KEY_EPG_FORCE_REFRESH_NOW, false).apply()
         }
         maybeRunPendingEpgRefresh()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleExternalPlaybackIntent(intent)
     }
 
     private fun updateFocusInfo(channel: Channel, listing: XtreamEpgListing?) {
@@ -568,7 +604,8 @@ class MainActivity : FragmentActivity() {
                 logoUrl = stream.streamIcon,
                 streamUrl = "",
                 epgId = stream.epgId,
-                number = stream.num
+                number = stream.num,
+                hasCatchup = supportsCatchup(stream)
             )
         }
         val sortedChannels = applyLiveChannelSort(allChannels, categoryId)
@@ -667,6 +704,13 @@ class MainActivity : FragmentActivity() {
             player = ExoPlayer.Builder(this).build()
             playerView.player = player
             playerView.resizeMode = currentAspectRatioMode
+            player?.addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_ENDED) {
+                        clearVodResumeProgress()
+                    }
+                }
+            })
         } catch (e: Exception) { e.printStackTrace() }
     }
 
@@ -830,12 +874,16 @@ class MainActivity : FragmentActivity() {
         currentContentCall?.cancel()
         pendingEpgCalls.forEach { it.cancel() }
         pendingEpgCalls.clear()
+        epgInFlightStreamIds.clear()
+        epgQueuedStreamIds.clear()
+        epgFetchQueue.clear()
+        epgActiveFetchCount = 0
 
         if (category.id == "favorites") {
             lifecycleScope.launch {
                 val favs = db.favoriteDao().getAll().first()
                 val channels = favs.map { fav ->
-                    Channel(id = fav.streamId.toLong(), name = fav.name, group = fav.categoryId ?: "favorites", logoUrl = fav.streamIcon, streamUrl = "", epgId = fav.epgId)
+                Channel(id = fav.streamId.toLong(), name = fav.name, group = fav.categoryId ?: "favorites", logoUrl = fav.streamIcon, streamUrl = "", epgId = fav.epgId)
                 }
                 if (rvContent.adapter != epgAdapter) {
                     rvContent.layoutManager = LinearLayoutManager(this@MainActivity)
@@ -846,7 +894,8 @@ class MainActivity : FragmentActivity() {
                 currentLiveCategoryId = category.id
                 currentLiveChannelIndex = channels.indexOfFirst { it.id == currentChannel?.id }
                 epgAdapter.setData(channels)
-                channels.forEach { ch -> fetchRowEpg(ch) }
+                hydrateEpgCacheFromDisk(channels)
+                enqueueEpgForChannels(channels)
                 refreshRecentChannelsRow()
             }
             return
@@ -864,7 +913,8 @@ class MainActivity : FragmentActivity() {
                 currentLiveCategoryId = category.id
                 currentLiveChannelIndex = channels.indexOfFirst { it.id == currentChannel?.id }
                 epgAdapter.setData(channels)
-                channels.forEach { ch -> fetchRowEpg(ch) }
+                hydrateEpgCacheFromDisk(channels)
+                enqueueEpgForChannels(channels)
                 refreshRecentChannelsRow()
             }
             return
@@ -979,37 +1029,49 @@ class MainActivity : FragmentActivity() {
         lifecycleScope.launch {
             val hiddenChannels = db.hiddenChannelDao().getAllHidden().first().map { it.channelId }.toSet()
             val channels = streams.filter { it.streamId.toLong() !in hiddenChannels }.map { stream ->
-                Channel(id = stream.streamId.toLong(), name = stream.name, group = categoryId, logoUrl = stream.streamIcon, streamUrl = "", epgId = stream.epgId, number = stream.num)
+                Channel(
+                    id = stream.streamId.toLong(),
+                    name = stream.name,
+                    group = categoryId,
+                    logoUrl = stream.streamIcon,
+                    streamUrl = "",
+                    epgId = stream.epgId,
+                    number = stream.num,
+                    hasCatchup = supportsCatchup(stream)
+                )
             }
             val sortedChannels = applyLiveChannelSort(channels, categoryId)
             currentLiveCategoryId = categoryId
             currentLiveChannels = sortedChannels
             currentLiveChannelIndex = sortedChannels.indexOfFirst { it.id == currentChannel?.id }
             epgAdapter.setData(sortedChannels)
+            hydrateEpgCacheFromDisk(sortedChannels)
             // Paint cached EPG immediately so rows fill instantly while network refresh runs.
             sortedChannels.forEach { ch ->
                 val cached = epgCacheByStreamId[ch.id.toInt()]
                 if (!cached.isNullOrEmpty()) {
-                    epgAdapter.setEpgData(ch.id.toInt(), cached)
+                    setEpgDataBuffered(ch.id.toInt(), cached)
                 }
             }
-            val savedLiveCategoryId = getLastCategoryIdForMode(ContentMode.LIVE_TV)
-            val savedFocusedRow = getLiveFocusedRowPosition()
-            if (categoryId == savedLiveCategoryId && savedFocusedRow in sortedChannels.indices) {
-                epgAdapter.focusedRowPosition = savedFocusedRow
-                lastGridPosition = savedFocusedRow
-                centerRecyclerPosition(rvContent, savedFocusedRow, 34)
+            val playingIdx = sortedChannels.indexOfFirst { it.id == currentChannel?.id }
+            val lastPlayedIdx = if (categoryId == prefs.getString("last_category_id", "")) {
+                sortedChannels.indexOfFirst { it.id == lastChanId }
+            } else {
+                -1
             }
-            if (categoryId == prefs.getString("last_category_id", "")) {
-                val idx = sortedChannels.indexOfFirst { it.id == lastChanId }
-                if (idx != -1) {
-                    lastGridPosition = idx
-                    epgAdapter.focusedRowPosition = idx
-                    saveLiveFocusedRowPosition(idx)
-                    centerRecyclerPosition(rvContent, lastGridPosition, 34)
-                }
+            val savedGroupRow = getLiveFocusedRowPositionForCategory(categoryId)
+            val targetRow = when {
+                playingIdx in sortedChannels.indices -> playingIdx
+                lastPlayedIdx in sortedChannels.indices -> lastPlayedIdx
+                savedGroupRow in sortedChannels.indices -> savedGroupRow
+                else -> 0
             }
-            sortedChannels.forEach { ch -> fetchRowEpg(ch) }
+            epgAdapter.focusedRowPosition = targetRow
+            lastGridPosition = targetRow
+            saveLiveFocusedRowPosition(targetRow)
+            saveLiveFocusedRowPositionForCategory(categoryId, targetRow)
+            centerRecyclerPosition(rvContent, targetRow, 34)
+            enqueueEpgForChannels(sortedChannels)
             prefetchAdjacentLiveGroups(categoryId)
             refreshRecentChannelsRow()
             maybeRunPendingEpgRefresh()
@@ -1019,7 +1081,7 @@ class MainActivity : FragmentActivity() {
     private fun maybeRunPendingEpgRefresh() {
         if (!pendingEpgRefresh) return
         if (currentMode != ContentMode.LIVE_TV || currentLiveChannels.isEmpty()) return
-        currentLiveChannels.forEach { ch -> fetchRowEpg(ch, forceRefresh = true) }
+        enqueueEpgForChannels(currentLiveChannels, forceRefresh = true)
         pendingEpgRefresh = false
         if (pendingEpgRefreshUserRequested) {
             Toast.makeText(this, "EPG updated", Toast.LENGTH_SHORT).show()
@@ -1052,11 +1114,49 @@ class MainActivity : FragmentActivity() {
                 return
             }
         }
-        if (!epgInFlightStreamIds.add(streamId)) return
+        if (epgInFlightStreamIds.contains(streamId) || !epgQueuedStreamIds.add(streamId)) return
+        epgFetchQueue.addLast(channel to forceRefresh)
+        processEpgFetchQueue()
+    }
+
+    private fun enqueueEpgForChannels(channels: List<Channel>, forceRefresh: Boolean = false) {
+        if (channels.isEmpty()) return
+        val anchorIndex = channels.indexOfFirst { it.id == currentChannel?.id }
+            .takeIf { it >= 0 }
+            ?: epgAdapter.focusedRowPosition.takeIf { it in channels.indices }
+            ?: 0
+        val ordered = ArrayList<Channel>(channels.size)
+        ordered.add(channels[anchorIndex])
+        var delta = 1
+        while (ordered.size < channels.size) {
+            val down = anchorIndex + delta
+            if (down < channels.size) ordered.add(channels[down])
+            val up = anchorIndex - delta
+            if (up >= 0) ordered.add(channels[up])
+            delta++
+        }
+        ordered.forEach { fetchRowEpg(it, forceRefresh) }
+    }
+
+    private fun processEpgFetchQueue() {
+        while (epgActiveFetchCount < maxConcurrentEpgFetches && epgFetchQueue.isNotEmpty()) {
+            val (channel, forceRefresh) = epgFetchQueue.removeFirst()
+            val streamId = channel.id.toInt()
+            epgQueuedStreamIds.remove(streamId)
+            if (epgInFlightStreamIds.contains(streamId)) continue
+            if (!forceRefresh) {
+                val cached = epgCacheByStreamId[streamId]
+                if (!cached.isNullOrEmpty()) {
+                    setEpgDataBuffered(streamId, cached)
+                    continue
+                }
+            }
+            if (!epgInFlightStreamIds.add(streamId)) continue
         val service = XtreamManager.getService() ?: run {
             epgInFlightStreamIds.remove(streamId)
-            return
+                continue
         }
+            epgActiveFetchCount++
         val call = service.getShortEpg(
             XtreamManager.username,
             XtreamManager.password,
@@ -1068,36 +1168,118 @@ class MainActivity : FragmentActivity() {
             override fun onResponse(call: Call<XtreamEpgResponse>, response: Response<XtreamEpgResponse>) {
                 pendingEpgCalls.remove(call)
                 epgInFlightStreamIds.remove(streamId)
+                epgActiveFetchCount = (epgActiveFetchCount - 1).coerceAtLeast(0)
+                processEpgFetchQueue()
                 if (!response.isSuccessful) return
                 val primary = response.body()?.listings.orEmpty()
                 lifecycleScope.launch {
                     val merged = applySecondaryEpgFallback(channel, primary)
                     cacheEpg(streamId, merged)
-                    epgAdapter.setEpgData(streamId, merged)
+                    setEpgDataBuffered(streamId, merged)
                 }
             }
             override fun onFailure(call: Call<XtreamEpgResponse>, t: Throwable) {
                 pendingEpgCalls.remove(call)
                 epgInFlightStreamIds.remove(streamId)
+                epgActiveFetchCount = (epgActiveFetchCount - 1).coerceAtLeast(0)
+                processEpgFetchQueue()
                 lifecycleScope.launch {
                     val merged = applySecondaryEpgFallback(channel, emptyList())
                     if (merged.isNotEmpty()) {
                         cacheEpg(streamId, merged)
-                        epgAdapter.setEpgData(streamId, merged)
+                        setEpgDataBuffered(streamId, merged)
                     }
                 }
             }
         })
+        }
+    }
+
+    private fun setEpgDataBuffered(streamId: Int, listings: List<XtreamEpgListing>) {
+        val now = System.currentTimeMillis()
+        val shouldDefer = currentMode == ContentMode.LIVE_TV &&
+            currentState == UiState.EPG_GRID &&
+            (isRvContentScrolling || now < epgUiSuppressUntilMs)
+        if (!shouldDefer) {
+            epgAdapter.setEpgData(streamId, listings)
+            return
+        }
+        pendingEpgUiUpdates[streamId] = listings
+        schedulePendingEpgUiFlush()
+    }
+
+    private fun schedulePendingEpgUiFlush() {
+        epgUiFlushRunnable?.let { epgUiUpdateHandler.removeCallbacks(it) }
+        epgUiFlushRunnable = Runnable {
+            val now = System.currentTimeMillis()
+            if (isRvContentScrolling || now < epgUiSuppressUntilMs) {
+                schedulePendingEpgUiFlush()
+                return@Runnable
+            }
+            flushPendingEpgUiUpdates()
+        }
+        epgUiUpdateHandler.postDelayed(epgUiFlushRunnable!!, 120L)
+    }
+
+    private fun flushPendingEpgUiUpdates() {
+        if (pendingEpgUiUpdates.isEmpty()) return
+        val snapshot = pendingEpgUiUpdates.toMap()
+        pendingEpgUiUpdates.clear()
+        snapshot.forEach { (streamId, listings) ->
+            epgAdapter.setEpgData(streamId, listings)
+        }
+    }
+
+    private fun suppressEpgUiUpdatesTemporarily() {
+        epgUiSuppressUntilMs = System.currentTimeMillis() + epgUiSuppressDuringNavMs
+        if (pendingEpgUiUpdates.isNotEmpty()) {
+            schedulePendingEpgUiFlush()
+        }
     }
 
     private fun cacheEpg(streamId: Int, listings: List<XtreamEpgListing>) {
         epgCacheByStreamId[streamId] = listings
+        val now = System.currentTimeMillis()
+        lifecycleScope.launch(Dispatchers.IO) {
+            db.epgCacheDao().upsert(
+                EpgCacheEntry(
+                    streamId = streamId,
+                    listingsJson = gson.toJson(listings),
+                    updatedAtMs = now
+                )
+            )
+        }
         if (epgCacheByStreamId.size <= maxEpgCacheEntries) return
         val removeCount = epgCacheByStreamId.size - maxEpgCacheEntries
         repeat(removeCount.coerceAtLeast(0)) {
             val firstKey = epgCacheByStreamId.entries.firstOrNull()?.key ?: return
             epgCacheByStreamId.remove(firstKey)
         }
+    }
+
+    private suspend fun hydrateEpgCacheFromDisk(channels: List<Channel>) {
+        if (channels.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val cutoff = now - epgDiskCacheTtlMs
+        val ids = channels.map { it.id.toInt() }.distinct()
+        val entries = withContext(Dispatchers.IO) {
+            db.epgCacheDao().deleteOlderThan(cutoff)
+            db.epgCacheDao().getByStreamIds(ids)
+        }
+        entries.forEach { entry ->
+            if (entry.updatedAtMs < cutoff) return@forEach
+            val parsed = parseEpgListingsJson(entry.listingsJson)
+            if (parsed.isNotEmpty()) {
+                epgCacheByStreamId[entry.streamId] = parsed
+                setEpgDataBuffered(entry.streamId, parsed)
+            }
+        }
+    }
+
+    private fun parseEpgListingsJson(raw: String): List<XtreamEpgListing> {
+        return runCatching {
+            gson.fromJson(raw, Array<XtreamEpgListing>::class.java)?.toList().orEmpty()
+        }.getOrDefault(emptyList())
     }
 
     private fun prefetchAdjacentLiveGroups(centerCategoryId: String) {
@@ -1181,7 +1363,8 @@ class MainActivity : FragmentActivity() {
         when (item) {
             is XtreamVodStream -> {
                 val ext = item.containerExtension ?: "mp4"
-                playMedia("${XtreamManager.baseUrl}/movie/${XtreamManager.username}/${XtreamManager.password}/${item.streamId}.$ext", item.name)
+                val url = "${XtreamManager.baseUrl}/movie/${XtreamManager.username}/${XtreamManager.password}/${item.streamId}.$ext"
+                playVodWithResume(url, item.name, movieResumeKey(item.streamId))
             }
             is XtreamSeries -> {
                 val intent = Intent(this, SeriesDetailsActivity::class.java).apply {
@@ -1338,12 +1521,106 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun playMedia(url: String, title: String) {
+        saveVodResumeProgress()
+        currentVodResumeKey = null
         tvProgramTitleLarge.text = title
         try {
             player?.setMediaItem(MediaItem.fromUri(url))
             player?.prepare(); player?.play()
             updateUiState(UiState.FULL_SCREEN)
         } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    private fun playVodWithResume(url: String, title: String, resumeKey: String) {
+        val savedMs = getVodResumeMs(resumeKey)
+        if (savedMs < 10_000L) {
+            startVodPlayback(url, title, resumeKey, 0L)
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage("Resume from ${formatPosition(savedMs)}?")
+            .setPositiveButton("Resume") { _, _ ->
+                startVodPlayback(url, title, resumeKey, savedMs)
+            }
+            .setNegativeButton("Start over") { _, _ ->
+                clearVodResumeByKey(resumeKey)
+                startVodPlayback(url, title, resumeKey, 0L)
+            }
+            .show()
+    }
+
+    private fun startVodPlayback(url: String, title: String, resumeKey: String, startPositionMs: Long) {
+        saveVodResumeProgress()
+        currentChannel = null
+        currentVodResumeKey = resumeKey
+        tvProgramTitleLarge.text = title
+        try {
+            player?.setMediaItem(MediaItem.fromUri(url))
+            player?.prepare()
+            if (startPositionMs > 0L) player?.seekTo(startPositionMs)
+            player?.play()
+            updateUiState(UiState.FULL_SCREEN)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun saveVodResumeProgress() {
+        val key = currentVodResumeKey ?: return
+        val pos = player?.currentPosition ?: 0L
+        val duration = player?.duration ?: 0L
+        if (duration > 0L && pos >= duration - 30_000L) {
+            clearVodResumeByKey(key)
+            return
+        }
+        if (pos < 10_000L) return
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putLong(vodResumePrefsKey(key), pos).apply()
+    }
+
+    private fun clearVodResumeProgress() {
+        val key = currentVodResumeKey ?: return
+        clearVodResumeByKey(key)
+    }
+
+    private fun clearVodResumeByKey(key: String) {
+        getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .remove(vodResumePrefsKey(key))
+            .apply()
+    }
+
+    private fun getVodResumeMs(key: String): Long {
+        return getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+            .getLong(vodResumePrefsKey(key), 0L)
+            .coerceAtLeast(0L)
+    }
+
+    private fun vodResumePrefsKey(key: String): String = "vod_resume_$key"
+
+    private fun movieResumeKey(streamId: Int): String = "movie_$streamId"
+
+    private fun formatPosition(ms: Long): String {
+        val totalSec = (ms / 1000L).coerceAtLeast(0L)
+        val hours = totalSec / 3600
+        val minutes = (totalSec % 3600) / 60
+        val seconds = totalSec % 60
+        return if (hours > 0) {
+            String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+        }
+    }
+
+    private fun handleExternalPlaybackIntent(intent: Intent?): Boolean {
+        val playUrl = intent?.getStringExtra("play_url")?.trim().orEmpty()
+        if (playUrl.isBlank()) return false
+        val title = intent?.getStringExtra("media_title")?.takeIf { it.isNotBlank() } ?: "Playback"
+        val resumeKey = intent?.getStringExtra("resume_key")?.takeIf { it.isNotBlank() }
+            ?: "ext_${playUrl.hashCode()}"
+        playVodWithResume(playUrl, title, resumeKey)
+        return true
     }
 
     private fun updateUiState(newState: UiState) {
@@ -1467,6 +1744,7 @@ class MainActivity : FragmentActivity() {
                         if (canMoveLeftInRow) {
                             return false
                         }
+                        persistCurrentLiveFocusedRowForCurrentCategory()
                         updateUiState(UiState.CATEGORIES)
                         return true
                     } else {
@@ -1484,35 +1762,45 @@ class MainActivity : FragmentActivity() {
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 if (currentState == UiState.NAV_RAIL) {
                     alignLiveCategorySelectionToPlayback()
+                    returnToPlayingChannelOnNextGridOpen = (currentMode == ContentMode.LIVE_TV)
                     updateUiState(UiState.CATEGORIES)
                     return true
                 }
                 if (currentState == UiState.CATEGORIES) {
-                    if (currentMode == ContentMode.LIVE_TV) {
+                    if (currentMode == ContentMode.LIVE_TV && shouldOpenPlayingChannelFromCategories()) {
                         enterLiveGuideAtCurrentChannel()
                     } else {
+                        loadFocusedCategoryIfApplicable()
+                        if (currentMode == ContentMode.LIVE_TV) {
+                            restoreLiveFocusForSelectedCategory()
+                        }
                         updateUiState(UiState.EPG_GRID)
                     }
+                    returnToPlayingChannelOnNextGridOpen = false
                     return true
                 }
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (currentState == UiState.EPG_GRID) {
                     if (currentMode == ContentMode.LIVE_TV) {
+                        suppressEpgUiUpdatesTemporarily()
                         if (moveEpgFocus(true)) return true
                     }
                 } else {
                     if (handleDpadWrapping(true)) return true
+                    if (currentState == UiState.CATEGORIES) returnToPlayingChannelOnNextGridOpen = false
                     rvCategories.post { loadFocusedCategoryIfApplicable() }
                 }
             }
             KeyEvent.KEYCODE_DPAD_UP -> {
                 if (currentState == UiState.EPG_GRID) {
                     if (currentMode == ContentMode.LIVE_TV) {
+                        suppressEpgUiUpdatesTemporarily()
                         if (moveEpgFocus(false)) return true
                     }
                 } else {
                     if (handleDpadWrapping(false)) return true
+                    if (currentState == UiState.CATEGORIES) returnToPlayingChannelOnNextGridOpen = false
                     rvCategories.post { loadFocusedCategoryIfApplicable() }
                 }
             }
@@ -1527,6 +1815,9 @@ class MainActivity : FragmentActivity() {
                 }
                 if (currentState == UiState.CATEGORIES) {
                     loadFocusedCategoryIfApplicable()
+                    if (currentMode == ContentMode.LIVE_TV) {
+                        restoreLiveFocusForSelectedCategory()
+                    }
                     updateUiState(UiState.EPG_GRID)
                     return true
                 }
@@ -1566,7 +1857,10 @@ class MainActivity : FragmentActivity() {
             when (currentState) {
                 UiState.NAV_RAIL -> updateUiState(UiState.FULL_SCREEN)
                 UiState.CATEGORIES -> updateUiState(UiState.NAV_RAIL)
-                UiState.EPG_GRID -> updateUiState(UiState.CATEGORIES)
+                UiState.EPG_GRID -> {
+                    persistCurrentLiveFocusedRowForCurrentCategory()
+                    updateUiState(UiState.CATEGORIES)
+                }
                 UiState.FULL_SCREEN -> enterLiveGuideAtCurrentChannel()
             }
             return true
@@ -1575,7 +1869,10 @@ class MainActivity : FragmentActivity() {
         // Phone/tablet back flow: Full screen -> Groups -> Nav rail (Settings) -> Groups
         when (currentState) {
             UiState.FULL_SCREEN -> updateUiState(UiState.CATEGORIES)
-            UiState.EPG_GRID -> updateUiState(UiState.CATEGORIES)
+            UiState.EPG_GRID -> {
+                persistCurrentLiveFocusedRowForCurrentCategory()
+                updateUiState(UiState.CATEGORIES)
+            }
             UiState.CATEGORIES -> updateUiState(UiState.NAV_RAIL)
             UiState.NAV_RAIL -> updateUiState(UiState.CATEGORIES)
         }
@@ -1678,33 +1975,64 @@ class MainActivity : FragmentActivity() {
         return getLiveFocusedRowPosition()
     }
 
-    private fun focusEpgRowAt(position: Int, attempt: Int = 0) {
+    private fun focusEpgRowAt(position: Int, attempt: Int = 0, requestToken: Int = -1) {
+        val token = if (requestToken == -1) {
+            ++epgFocusRequestToken
+        } else {
+            requestToken
+        }
         val itemCount = epgAdapter.itemCount
         if (itemCount == 0) return
         val targetPos = position.coerceIn(0, itemCount - 1)
         epgAdapter.focusedRowPosition = targetPos
         lastGridPosition = targetPos
         saveLiveFocusedRowPosition(targetPos)
-        centerRecyclerPosition(rvContent, targetPos, 34)
+        currentLiveCategoryId?.takeIf { it.isNotBlank() }?.let { categoryId ->
+            saveLiveFocusedRowPositionForCategory(categoryId, targetPos)
+        }
 
+        // Scroll and focus in ONE post to avoid focus jumping between two separate async calls
         rvContent.post {
+            if (token != epgFocusRequestToken) return@post
+            val lm = rvContent.layoutManager as? LinearLayoutManager
+            if (lm != null) {
+                val itemHeight = rvContent.findViewHolderForAdapterPosition(targetPos)?.itemView?.height
+                    ?: rvContent.getChildAt(0)?.height
+                    ?: 34
+                val offset = ((rvContent.height - itemHeight) / 2).coerceAtLeast(0)
+                lm.scrollToPositionWithOffset(targetPos, offset)
+            }
             val holder = rvContent.findViewHolderForAdapterPosition(targetPos) as? EpgRowAdapter.VH
             if (holder == null) {
                 if (attempt < 6) {
-                    rvContent.postDelayed({ focusEpgRowAt(targetPos, attempt + 1) }, 50)
-                } else {
-                    rvContent.requestFocus()
+                    rvContent.postDelayed({
+                        if (token == epgFocusRequestToken) {
+                            focusEpgRowAt(targetPos, attempt + 1, token)
+                        }
+                    }, 50)
                 }
                 return@post
             }
-
-            val channel = epgAdapter.getChannelAt(targetPos)
-            val nowIndex = if (channel != null) epgAdapter.getNowPlayingIndex(channel.id.toInt()) else 0
-            val focusTarget = holder.container.getChildAt(nowIndex)
+            val timelineX = epgScrollSync.getCurrentX()
+            val timelineIndex = findProgramIndexForTimelineX(holder.container, timelineX)
+            val focusTarget = holder.container.getChildAt(timelineIndex)
                 ?: holder.container.getChildAt(0)
                 ?: holder.itemView
-            focusTarget.requestFocus()
+            if (token == epgFocusRequestToken) {
+                focusTarget.requestFocus()
+            }
         }
+    }
+
+    private fun findProgramIndexForTimelineX(container: LinearLayout, timelineX: Int): Int {
+        val childCount = container.childCount
+        if (childCount <= 0) return 0
+        val anchorX = (timelineX + 24).coerceAtLeast(0)
+        for (i in 0 until childCount) {
+            val child = container.getChildAt(i) ?: continue
+            if (anchorX < child.right) return i
+        }
+        return childCount - 1
     }
 
     private fun centerRecyclerPosition(rv: RecyclerView, position: Int, defaultItemHeightPx: Int) {
@@ -1810,6 +2138,19 @@ class MainActivity : FragmentActivity() {
             .coerceAtLeast(0)
     }
 
+    private fun saveLiveFocusedRowPositionForCategory(categoryId: String, position: Int) {
+        getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putInt("$KEY_LIVE_FOCUSED_ROW_PREFIX$categoryId", position.coerceAtLeast(0))
+            .apply()
+    }
+
+    private fun getLiveFocusedRowPositionForCategory(categoryId: String): Int {
+        return getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+            .getInt("$KEY_LIVE_FOCUSED_ROW_PREFIX$categoryId", 0)
+            .coerceAtLeast(0)
+    }
+
     private fun lastCategoryIdKey(mode: ContentMode): String = when (mode) {
         ContentMode.LIVE_TV -> KEY_LAST_CATEGORY_ID_LIVE
         ContentMode.MOVIES -> KEY_LAST_CATEGORY_ID_MOVIES
@@ -1891,6 +2232,63 @@ class MainActivity : FragmentActivity() {
         lastCategoryPosition = pos
         saveLastCategoryIdForMode(ContentMode.LIVE_TV, targetCategoryId)
         saveLastCategoryPositionForMode(ContentMode.LIVE_TV, pos)
+    }
+
+    private fun shouldOpenPlayingChannelFromCategories(): Boolean {
+        if (!returnToPlayingChannelOnNextGridOpen) return false
+        val targetCategoryId = getTargetLiveCategoryIdForReturn() ?: return false
+        val selectedCategoryId = categoryAdapter.getItemAt(lastCategoryPosition)?.id ?: return false
+        return selectedCategoryId == targetCategoryId
+    }
+
+    private fun getTargetLiveCategoryIdForReturn(): String? {
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        return resolveLiveCategoryId(currentChannel)
+            ?: prefs.getString("last_category_id", null)
+    }
+
+    private fun focusPlayingRowIfCurrentGroupSelected() {
+        val selectedCategoryId = categoryAdapter.getItemAt(lastCategoryPosition)?.id ?: return
+        if (selectedCategoryId != currentLiveCategoryId) return
+        val playingId = currentChannel?.id ?: return
+        val row = currentLiveChannels.indexOfFirst { it.id == playingId }
+        if (row == -1) return
+        epgAdapter.focusedRowPosition = row
+        lastGridPosition = row
+        saveLiveFocusedRowPosition(row)
+    }
+
+    private fun persistCurrentLiveFocusedRowForCurrentCategory() {
+        if (currentMode != ContentMode.LIVE_TV) return
+        val categoryId = currentLiveCategoryId?.takeIf { it.isNotBlank() } ?: return
+        val row = resolveFocusedEpgRowPosition().coerceAtLeast(0)
+        saveLiveFocusedRowPosition(row)
+        saveLiveFocusedRowPositionForCategory(categoryId, row)
+    }
+
+    private fun restoreLiveFocusForSelectedCategory() {
+        if (currentMode != ContentMode.LIVE_TV) return
+        val selectedCategoryId = categoryAdapter.getItemAt(lastCategoryPosition)?.id ?: return
+        if (selectedCategoryId != currentLiveCategoryId) return
+
+        val playingIdInSelectedGroup = currentChannel
+            ?.takeIf { resolveLiveCategoryId(it) == selectedCategoryId }
+            ?.id
+        val playingRow = playingIdInSelectedGroup?.let { id ->
+            currentLiveChannels.indexOfFirst { it.id == id }
+        } ?: -1
+        val savedGroupRow = getLiveFocusedRowPositionForCategory(selectedCategoryId)
+
+        val targetRow = when {
+            playingRow in currentLiveChannels.indices -> playingRow
+            savedGroupRow in currentLiveChannels.indices -> savedGroupRow
+            else -> resolveFocusedEpgRowPosition().coerceIn(0, (currentLiveChannels.size - 1).coerceAtLeast(0))
+        }
+
+        epgAdapter.focusedRowPosition = targetRow
+        lastGridPosition = targetRow
+        saveLiveFocusedRowPosition(targetRow)
+        saveLiveFocusedRowPositionForCategory(selectedCategoryId, targetRow)
     }
 
     fun playChannel(channel: Channel) {
@@ -2036,9 +2434,20 @@ class MainActivity : FragmentActivity() {
                 logoUrl = stream.streamIcon,
                 streamUrl = "",
                 epgId = stream.epgId,
-                number = stream.num
+                number = stream.num,
+                hasCatchup = supportsCatchup(stream)
             )
         }
+    }
+
+    private fun supportsCatchup(stream: XtreamLiveStream): Boolean {
+        val archiveEnabled = stream.tvArchive?.trim().orEmpty().lowercase(Locale.getDefault())
+        val duration = stream.tvArchiveDuration?.toIntOrNull() ?: 0
+        return archiveEnabled == "1" ||
+            archiveEnabled == "true" ||
+            archiveEnabled == "yes" ||
+            archiveEnabled == "on" ||
+            duration > 0
     }
 
     private fun getRecentChannelIds(): MutableList<Long> {
@@ -2109,6 +2518,7 @@ class MainActivity : FragmentActivity() {
         private const val KEY_LAST_GRID_POS_MOVIES = "last_grid_pos_movies"
         private const val KEY_LAST_GRID_POS_SERIES = "last_grid_pos_series"
         private const val KEY_LAST_LIVE_FOCUSED_ROW = "last_live_focused_row"
+        private const val KEY_LIVE_FOCUSED_ROW_PREFIX = "last_live_focused_row_"
         private const val KEY_UI_MODE = "ui_mode"
         private const val UI_MODE_AUTO = "auto"
         private const val UI_MODE_TV = "tv"
@@ -2154,8 +2564,11 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
+        saveVodResumeProgress()
         miniInfoRunnable?.let { miniInfoHandler.removeCallbacks(it) }
         zapBarRunnable?.let { zapBarHandler.removeCallbacks(it) }
+        epgUiFlushRunnable?.let { epgUiUpdateHandler.removeCallbacks(it) }
+        pendingEpgUiUpdates.clear()
         uiTickRunnable?.let { uiTickHandler.removeCallbacks(it) }
         sleepTimerRunnable?.let { sleepTimerHandler.removeCallbacks(it) }
         super.onDestroy()

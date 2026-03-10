@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(./gradlew assembleDebug)",
-      "Bash(./gradlew.bat assembleDebug)"
+      "Bash(./gradlew.bat assembleDebug)",
+      "Bash(xargs grep -l \"playlist\\\\|Playlist\\\\|m3u\\\\|M3U\\\\|xtream\\\\|Xtream\")",
+      "Bash(xargs grep -l \"EPG\\\\|epg\\\\|EpgManager\\\\|xmltv\")",
+      "Bash(xargs grep -li \"channel\\\\|Channel\")",
+      "Bash(sed 's/^\"\">//')"
     ]
   }
 }

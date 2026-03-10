@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<FrameLayout android:id="@id/APKTOOL_RENAMED_0x7f0b0156" android:focusable="true" android:focusableInTouchMode="true" android:nextFocusLeft="@id/APKTOOL_RENAMED_0x7f0b0156" android:nextFocusRight="@id/APKTOOL_RENAMED_0x7f0b0156" android:nextFocusUp="@id/APKTOOL_RENAMED_0x7f0b0156" android:nextFocusDown="@id/APKTOOL_RENAMED_0x7f0b0156" android:descendantFocusability="afterDescendants" android:layout_width="match_parent" android:layout_height="match_parent"
-  xmlns:android="http://schemas.android.com/apk/res/android">
-    <LinearLayout android:layout_gravity="center" android:orientation="vertical" android:layout_width="wrap_content" android:layout_height="wrap_content">
-        <ImageView android:layout_gravity="center" android:id="@id/APKTOOL_RENAMED_0x7f0b01f7" android:visibility="gone" android:layout_width="wrap_content" android:layout_height="@dimen/APKTOOL_RENAMED_0x7f070135" />
-        <TextView android:layout_gravity="center" android:id="@id/APKTOOL_RENAMED_0x7f0b028e" android:visibility="gone" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxWidth="@dimen/APKTOOL_RENAMED_0x7f070136" style="?APKTOOL_RENAMED_0x7f04023e" />
-        <Button android:layout_gravity="center" android:id="@id/APKTOOL_RENAMED_0x7f0b00b6" android:visibility="gone" android:nextFocusLeft="@id/APKTOOL_RENAMED_0x7f0b00b6" android:nextFocusRight="@id/APKTOOL_RENAMED_0x7f0b00b6" android:nextFocusUp="@id/APKTOOL_RENAMED_0x7f0b00b6" android:nextFocusDown="@id/APKTOOL_RENAMED_0x7f0b00b6" android:layout_width="wrap_content" android:layout_height="wrap_content" style="?android:buttonStyle" />
-    </LinearLayout>
-</FrameLayout>

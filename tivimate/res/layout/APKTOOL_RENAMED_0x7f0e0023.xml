@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<merge
-  xmlns:android="http://schemas.android.com/apk/res/android">
-    <Button android:id="@id/APKTOOL_RENAMED_0x7f0b0190" android:background="@drawable/APKTOOL_RENAMED_0x7f080098" android:visibility="gone" android:layout_marginTop="@dimen/APKTOOL_RENAMED_0x7f07005d" android:text="@string/APKTOOL_RENAMED_0x7f130046" android:drawableLeft="@drawable/APKTOOL_RENAMED_0x7f080099" style="@style/APKTOOL_RENAMED_0x7f140180" />
-    <Button android:id="@id/APKTOOL_RENAMED_0x7f0b0414" android:background="@drawable/APKTOOL_RENAMED_0x7f08009b" android:visibility="gone" android:layout_marginTop="@dimen/APKTOOL_RENAMED_0x7f07005d" android:text="@string/APKTOOL_RENAMED_0x7f130070" android:drawableLeft="@drawable/APKTOOL_RENAMED_0x7f08009c" style="@style/APKTOOL_RENAMED_0x7f140180" />
-</merge>

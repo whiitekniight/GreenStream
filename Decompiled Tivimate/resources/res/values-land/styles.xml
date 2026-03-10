@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="u_res_0x7f1404bc" parent="@style/u_res_0x7f140104">
+        <item name="u_res_0x7f0405e4">u_res_0x7f0b00bf</item>
+        <item name="u_res_0x7f0405f1">u_res_0x7f0b019d</item>
+    </style>
+    <style name="u_res_0x7f140655" parent="@style/u_res_0x7f1404ae">
+        <item name="android:textAppearance">?attr/u_res_0x7f040619</item>
+        <item name="android:textColor">?attr/u_res_0x7f04014d</item>
+        <item name="android:ellipsize">3</item>
+        <item name="android:layout_gravity">0x800033</item>
+        <item name="android:paddingTop">16dp</item>
+        <item name="android:layout_width">-1</item>
+        <item name="android:layout_height">-2</item>
+        <item name="android:maxLines">@integer/u_res_0x7f0c005f</item>
+        <item name="u_res_0x7f040050">20sp</item>
+        <item name="u_res_0x7f040054">u_res_0x7f0b0416</item>
+    </style>
+    <style name="u_res_0x7f140656" parent="@style/u_res_0x7f140655">
+        <item name="android:textAppearance">?attr/u_res_0x7f040619</item>
+        <item name="android:maxLines">1</item>
+        <item name="u_res_0x7f040050">20sp</item>
+        <item name="u_res_0x7f040054">u_res_0x7f0b02c5</item>
+    </style>
+    <style name="u_res_0x7f140658" parent="@style/u_res_0x7f140122">
+        <item name="android:layout_gravity">0x800053</item>
+    </style>
+</resources>

@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="u_res_0x7f14003c" parent="@android:style/TextAppearance.Material.Widget.Button.Borderless.Colored">
+    </style>
+    <style name="u_res_0x7f14003d" parent="@android:style/TextAppearance.Material.Widget.Button.Colored">
+    </style>
+    <style name="u_res_0x7f14009b" parent="@style/u_res_0x7f14009c">
+        <item name="android:colorBackground">@color/u_res_0x7f06007b</item>
+        <item name="android:buttonBarButtonStyle">?attr/u_res_0x7f0400ac</item>
+        <item name="android:timePickerDialogTheme">@style/u_res_0x7f14042b</item>
+        <item name="android:datePickerDialogTheme">@style/u_res_0x7f14042b</item>
+        <item name="android:contextPopupMenuStyle">@style/u_res_0x7f140668</item>
+        <item name="u_res_0x7f040004">@style/u_res_0x7f140428</item>
+        <item name="u_res_0x7f040005">@dimen/u_res_0x7f07052e</item>
+        <item name="u_res_0x7f040007">@style/u_res_0x7f140615</item>
+        <item name="u_res_0x7f04000b">@style/u_res_0x7f14041f</item>
+        <item name="u_res_0x7f04001e">@style/u_res_0x7f140616</item>
+        <item name="u_res_0x7f040022">@style/u_res_0x7f14066a</item>
+        <item name="u_res_0x7f040033">@style/u_res_0x7f14042c</item>
+        <item name="u_res_0x7f040042">@style/u_res_0x7f140619</item>
+        <item name="u_res_0x7f04008d">@style/u_res_0x7f14062b</item>
+        <item name="u_res_0x7f040090">@style/u_res_0x7f140622</item>
+        <item name="u_res_0x7f040091">@style/u_res_0x7f140427</item>
+        <item name="u_res_0x7f0400ac">@style/u_res_0x7f14062b</item>
+        <item name="u_res_0x7f0400e6">@style/u_res_0x7f14063f</item>
+        <item name="u_res_0x7f04012e">?attr/u_res_0x7f04016a</item>
+        <item name="u_res_0x7f04013c">@color/u_res_0x7f06007c</item>
+        <item name="u_res_0x7f040161">@color/u_res_0x7f060082</item>
+        <item name="u_res_0x7f040163">@color/u_res_0x7f060083</item>
+        <item name="u_res_0x7f040286">@style/u_res_0x7f140644</item>
+        <item name="u_res_0x7f0403e0">@style/u_res_0x7f140669</item>
+        <item name="u_res_0x7f0403f5">@style/u_res_0x7f140430</item>
+        <item name="u_res_0x7f040403">@style/u_res_0x7f140438</item>
+        <item name="u_res_0x7f04040d">@style/u_res_0x7f140648</item>
+        <item name="u_res_0x7f04040e">@style/u_res_0x7f140437</item>
+        <item name="u_res_0x7f04042b">@style/u_res_0x7f14043e</item>
+        <item name="u_res_0x7f040483">@style/u_res_0x7f140666</item>
+        <item name="u_res_0x7f0404ee">@style/u_res_0x7f140667</item>
+        <item name="u_res_0x7f04050c">@style/u_res_0x7f140640</item>
+        <item name="u_res_0x7f040597">@style/u_res_0x7f140630</item>
+        <item name="u_res_0x7f040598">@style/u_res_0x7f14066e</item>
+        <item name="u_res_0x7f040599">@style/u_res_0x7f140670</item>
+        <item name="u_res_0x7f0405de">@style/u_res_0x7f140641</item>
+        <item name="u_res_0x7f0405fb">@style/u_res_0x7f140671</item>
+        <item name="u_res_0x7f040626">?attr/u_res_0x7f040630</item>
+        <item name="u_res_0x7f04062f">?attr/u_res_0x7f040630</item>
+        <item name="u_res_0x7f040642">@style/u_res_0x7f140679</item>
+        <item name="u_res_0x7f040643">@style/u_res_0x7f14067b</item>
+        <item name="u_res_0x7f040644">@style/u_res_0x7f140678</item>
+        <item name="u_res_0x7f040646">@style/u_res_0x7f14067d</item>
+        <item name="u_res_0x7f040647">@style/u_res_0x7f14067f</item>
+        <item name="u_res_0x7f040648">@style/u_res_0x7f14067c</item>
+        <item name="u_res_0x7f040649">@style/u_res_0x7f140678</item>
+        <item name="u_res_0x7f04068d">@style/u_res_0x7f14068b</item>
+        <item name="u_res_0x7f0406c8">com.google.android.material.theme.MaterialComponentsViewInflater</item>
+    </style>
+    <style name="u_res_0x7f14009d" parent="@style/u_res_0x7f14009e">
+        <item name="android:colorBackground">@color/u_res_0x7f06007b</item>
+        <item name="android:contextPopupMenuStyle">@style/u_res_0x7f140668</item>
+        <item name="u_res_0x7f040004">@style/u_res_0x7f140428</item>
+        <item name="u_res_0x7f040005">@dimen/u_res_0x7f07052e</item>
+        <item name="u_res_0x7f040007">@style/u_res_0x7f140615</item>
+        <item name="u_res_0x7f04000b">@style/u_res_0x7f14041f</item>
+        <item name="u_res_0x7f04001e">@style/u_res_0x7f140616</item>
+        <item name="u_res_0x7f040022">@style/u_res_0x7f14066a</item>
+        <item name="u_res_0x7f040033">@style/u_res_0x7f14042c</item>
+        <item name="u_res_0x7f040042">@style/u_res_0x7f140619</item>
+        <item name="u_res_0x7f04008d">@style/u_res_0x7f14062b</item>
+        <item name="u_res_0x7f040090">@style/u_res_0x7f140622</item>
+        <item name="u_res_0x7f0400ac">@style/u_res_0x7f14062d</item>
+        <item name="u_res_0x7f0400e6">@style/u_res_0x7f14063f</item>
+        <item name="u_res_0x7f04012e">?attr/u_res_0x7f04016a</item>
+        <item name="u_res_0x7f04013c">@color/u_res_0x7f06007c</item>
+        <item name="u_res_0x7f040161">@color/u_res_0x7f060082</item>
+        <item name="u_res_0x7f040163">@color/u_res_0x7f060083</item>
+        <item name="u_res_0x7f04016a">@color/u_res_0x7f060085</item>
+        <item name="u_res_0x7f040286">@style/u_res_0x7f140644</item>
+        <item name="u_res_0x7f0403e0">@style/u_res_0x7f140669</item>
+        <item name="u_res_0x7f0403f5">@style/u_res_0x7f140430</item>
+        <item name="u_res_0x7f040483">@style/u_res_0x7f140666</item>
+        <item name="u_res_0x7f0404ee">@style/u_res_0x7f140667</item>
+        <item name="u_res_0x7f04050c">@style/u_res_0x7f140640</item>
+        <item name="u_res_0x7f040597">@style/u_res_0x7f140630</item>
+        <item name="u_res_0x7f040598">@style/u_res_0x7f14066e</item>
+        <item name="u_res_0x7f040599">@style/u_res_0x7f140670</item>
+        <item name="u_res_0x7f0405de">@style/u_res_0x7f140641</item>
+        <item name="u_res_0x7f0405fb">@style/u_res_0x7f140671</item>
+        <item name="u_res_0x7f040626">?attr/u_res_0x7f040630</item>
+        <item name="u_res_0x7f04062f">?attr/u_res_0x7f040630</item>
+        <item name="u_res_0x7f040642">@style/u_res_0x7f140679</item>
+        <item name="u_res_0x7f040643">@style/u_res_0x7f14067b</item>
+        <item name="u_res_0x7f040644">@style/u_res_0x7f140678</item>
+        <item name="u_res_0x7f040646">@style/u_res_0x7f14067d</item>
+        <item name="u_res_0x7f040647">@style/u_res_0x7f14067f</item>
+        <item name="u_res_0x7f040648">@style/u_res_0x7f14067c</item>
+        <item name="u_res_0x7f040649">@style/u_res_0x7f140678</item>
+        <item name="u_res_0x7f04068d">@style/u_res_0x7f14068b</item>
+        <item name="u_res_0x7f0406c8">com.google.android.material.theme.MaterialComponentsViewInflater</item>
+    </style>
+    <style name="u_res_0x7f14009f" parent="@style/u_res_0x7f1400a0">
+        <item name="android:colorBackground">@color/u_res_0x7f060088</item>
+        <item name="android:buttonBarButtonStyle">?attr/u_res_0x7f0400ac</item>
+        <item name="android:timePickerDialogTheme">@style/u_res_0x7f14042b</item>
+        <item name="android:datePickerDialogTheme">@style/u_res_0x7f14042b</item>
+        <item name="android:contextPopupMenuStyle">@style/u_res_0x7f140668</item>
+        <item name="u_res_0x7f040004">@style/u_res_0x7f14042e</item>
+        <item name="u_res_0x7f040005">@dimen/u_res_0x7f07052e</item>
+        <item name="u_res_0x7f040007">@style/u_res_0x7f140645</item>
+        <item name="u_res_0x7f04001e">@style/u_res_0x7f140616</item>
+        <item name="u_res_0x7f040022">@style/u_res_0x7f14066a</item>
+        <item name="u_res_0x7f040033">@style/u_res_0x7f14042c</item>
+        <item name="u_res_0x7f040042">@style/u_res_0x7f140617</item>
+        <item name="u_res_0x7f04008d">@style/u_res_0x7f14062b</item>
+        <item name="u_res_0x7f040090">@style/u_res_0x7f140622</item>
+        <item name="u_res_0x7f040091">@style/u_res_0x7f140427</item>
+        <item name="u_res_0x7f0400ac">@style/u_res_0x7f14062b</item>
+        <item name="u_res_0x7f0400e6">@style/u_res_0x7f14063f</item>
+        <item name="u_res_0x7f04012e">?attr/u_res_0x7f04016a</item>
+        <item name="u_res_0x7f04013c">@color/u_res_0x7f060089</item>
+        <item name="u_res_0x7f040161">@color/u_res_0x7f06008f</item>
+        <item name="u_res_0x7f040163">@color/u_res_0x7f060090</item>
+        <item name="u_res_0x7f040286">@style/u_res_0x7f140644</item>
+        <item name="u_res_0x7f0403e0">@style/u_res_0x7f140669</item>
+        <item name="u_res_0x7f0403f5">@style/u_res_0x7f140430</item>
+        <item name="u_res_0x7f040403">@style/u_res_0x7f140438</item>
+        <item name="u_res_0x7f04040d">@style/u_res_0x7f140648</item>
+        <item name="u_res_0x7f04040e">@style/u_res_0x7f140437</item>
+        <item name="u_res_0x7f04042b">@style/u_res_0x7f14043e</item>
+        <item name="u_res_0x7f040483">@style/u_res_0x7f140666</item>
+        <item name="u_res_0x7f0404ee">@style/u_res_0x7f140667</item>
+        <item name="u_res_0x7f04050c">@style/u_res_0x7f140640</item>
+        <item name="u_res_0x7f040597">@style/u_res_0x7f140630</item>
+        <item name="u_res_0x7f040598">@style/u_res_0x7f14066e</item>
+        <item name="u_res_0x7f040599">@style/u_res_0x7f140670</item>
+        <item name="u_res_0x7f0405de">@style/u_res_0x7f140641</item>
+        <item name="u_res_0x7f0405fb">@style/u_res_0x7f140671</item>
+        <item name="u_res_0x7f040626">?attr/u_res_0x7f040630</item>
+        <item name="u_res_0x7f04062f">?attr/u_res_0x7f040630</item>
+        <item name="u_res_0x7f040642">@style/u_res_0x7f140679</item>
+        <item name="u_res_0x7f040643">@style/u_res_0x7f14067b</item>
+        <item name="u_res_0x7f040644">@style/u_res_0x7f140678</item>
+        <item name="u_res_0x7f040646">@style/u_res_0x7f14067d</item>
+        <item name="u_res_0x7f040647">@style/u_res_0x7f14067f</item>
+        <item name="u_res_0x7f040648">@style/u_res_0x7f14067c</item>
+        <item name="u_res_0x7f040649">@style/u_res_0x7f140678</item>
+        <item name="u_res_0x7f04068d">@style/u_res_0x7f14068b</item>
+        <item name="u_res_0x7f0406c8">com.google.android.material.theme.MaterialComponentsViewInflater</item>
+    </style>
+    <style name="u_res_0x7f1400a2" parent="@style/u_res_0x7f1400a3">
+        <item name="android:colorBackground">@color/u_res_0x7f060088</item>
+        <item name="android:contextPopupMenuStyle">@style/u_res_0x7f140668</item>
+        <item name="u_res_0x7f040004">@style/u_res_0x7f14042e</item>
+        <item name="u_res_0x7f040005">@dimen/u_res_0x7f07052e</item>
+        <item name="u_res_0x7f040007">@style/u_res_0x7f140645</item>
+        <item name="u_res_0x7f04001e">@style/u_res_0x7f140616</item>
+        <item name="u_res_0x7f040022">@style/u_res_0x7f14066a</item>
+        <item name="u_res_0x7f040033">@style/u_res_0x7f14042c</item>
+        <item name="u_res_0x7f040042">@style/u_res_0x7f140617</item>
+        <item name="u_res_0x7f04008d">@style/u_res_0x7f14062b</item>
+        <item name="u_res_0x7f040090">@style/u_res_0x7f140622</item>
+        <item name="u_res_0x7f0400ac">@style/u_res_0x7f14062d</item>
+        <item name="u_res_0x7f0400e6">@style/u_res_0x7f14063f</item>
+        <item name="u_res_0x7f04012e">?attr/u_res_0x7f04016a</item>
+        <item name="u_res_0x7f04013c">@color/u_res_0x7f060089</item>
+        <item name="u_res_0x7f040161">@color/u_res_0x7f06008f</item>
+        <item name="u_res_0x7f040163">@color/u_res_0x7f060090</item>
+        <item name="u_res_0x7f04016a">@color/u_res_0x7f060092</item>
+        <item name="u_res_0x7f040286">@style/u_res_0x7f140644</item>
+        <item name="u_res_0x7f0403e0">@style/u_res_0x7f140669</item>
+        <item name="u_res_0x7f0403f5">@style/u_res_0x7f140430</item>
+        <item name="u_res_0x7f040483">@style/u_res_0x7f140666</item>
+        <item name="u_res_0x7f0404ee">@style/u_res_0x7f140667</item>
+        <item name="u_res_0x7f04050c">@style/u_res_0x7f140640</item>
+        <item name="u_res_0x7f040597">@style/u_res_0x7f140630</item>
+        <item name="u_res_0x7f040598">@style/u_res_0x7f14066e</item>
+        <item name="u_res_0x7f040599">@style/u_res_0x7f140670</item>
+        <item name="u_res_0x7f0405de">@style/u_res_0x7f140641</item>
+        <item name="u_res_0x7f0405fb">@style/u_res_0x7f140671</item>
+        <item name="u_res_0x7f040626">?attr/u_res_0x7f040630</item>
+        <item name="u_res_0x7f04062f">?attr/u_res_0x7f040630</item>
+        <item name="u_res_0x7f040642">@style/u_res_0x7f140679</item>
+        <item name="u_res_0x7f040643">@style/u_res_0x7f14067b</item>
+        <item name="u_res_0x7f040644">@style/u_res_0x7f140678</item>
+        <item name="u_res_0x7f040646">@style/u_res_0x7f14067d</item>
+        <item name="u_res_0x7f040647">@style/u_res_0x7f14067f</item>
+        <item name="u_res_0x7f040648">@style/u_res_0x7f14067c</item>
+        <item name="u_res_0x7f040649">@style/u_res_0x7f140678</item>
+        <item name="u_res_0x7f04068d">@style/u_res_0x7f14068b</item>
+        <item name="u_res_0x7f0406c8">com.google.android.material.theme.MaterialComponentsViewInflater</item>
+    </style>
+    <style name="u_res_0x7f140280" parent="@style/u_res_0x7f14027f">
+    </style>
+    <style name="u_res_0x7f140283" parent="@style/u_res_0x7f14027e">
+    </style>
+    <style name="u_res_0x7f140285" parent="@style/u_res_0x7f140284">
+    </style>
+    <style name="u_res_0x7f140287" parent="@style/u_res_0x7f140286">
+    </style>
+    <style name="u_res_0x7f140691" parent="@style/u_res_0x7f14049e">
+        <item name="android:textSize">@dimen/u_res_0x7f070051</item>
+        <item name="android:textColor">@color/u_res_0x7f06047b</item>
+        <item name="android:clipChildren">false</item>
+        <item name="android:clipToPadding">false</item>
+        <item name="android:itemBackground">@drawable/u_res_0x7f080207</item>
+        <item name="android:popupBackground">@drawable/u_res_0x7f080091</item>
+        <item name="android:dropDownVerticalOffset">1px</item>
+        <item name="android:popupAnimationStyle">@style/u_res_0x7f14000c</item>
+        <item name="android:listPreferredItemHeightSmall">@dimen/u_res_0x7f07046f</item>
+        <item name="android:paddingStart">4dp</item>
+        <item name="android:paddingEnd">4dp</item>
+        <item name="android:layout_marginStart">-10dp</item>
+        <item name="android:layout_marginEnd">-6dp</item>
+        <item name="android:popupElevation">8dp</item>
+        <item name="android:popupEnterTransition">@null</item>
+        <item name="android:popupExitTransition">@null</item>
+    </style>
+</resources>

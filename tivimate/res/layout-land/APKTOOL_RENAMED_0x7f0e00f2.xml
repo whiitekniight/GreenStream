@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<merge android:id="@id/APKTOOL_RENAMED_0x7f0b027b" android:layout_width="wrap_content" android:layout_height="wrap_content"
-  xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <androidx.constraintlayout.helper.widget.Flow android:orientation="vertical" android:id="@id/APKTOOL_RENAMED_0x7f0b026d" android:layout_width="0.0dp" android:layout_height="wrap_content" android:layout_marginTop="20.0dp" app:APKTOOL_RENAMED_0x7f040187="material_clock_display,material_clock_period_toggle" app:APKTOOL_RENAMED_0x7f04029b="@dimen/APKTOOL_RENAMED_0x7f070455" app:APKTOOL_RENAMED_0x7f04038c="APKTOOL_RENAMED_0x7f0b02e9" app:APKTOOL_RENAMED_0x7f0403a6="APKTOOL_RENAMED_0x7f0b02e9" app:APKTOOL_RENAMED_0x7f0403aa="APKTOOL_RENAMED_0x7f0b02e9" />
-    <include android:id="@id/APKTOOL_RENAMED_0x7f0b026c" android:layout_width="wrap_content" android:layout_height="wrap_content" layout="@layout/material_clock_display" />
-    <include android:id="@id/APKTOOL_RENAMED_0x7f0b0273" android:layout_width="0.0dp" android:layout_height="wrap_content" layout="@layout/APKTOOL_RENAMED_0x7f0e00eb" />
-    <com.google.android.material.timepicker.ClockFaceView android:id="@id/APKTOOL_RENAMED_0x7f0b026e" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="@dimen/APKTOOL_RENAMED_0x7f070059" app:APKTOOL_RENAMED_0x7f0403a5="@id/APKTOOL_RENAMED_0x7f0b026d" app:APKTOOL_RENAMED_0x7f0403aa="APKTOOL_RENAMED_0x7f0b02e9" />
-</merge>

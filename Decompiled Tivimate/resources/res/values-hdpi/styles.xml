@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="u_res_0x7f1400e0" parent="@style/u_res_0x7f1400e1">
+        <item name="u_res_0x7f040075">18.66dp</item>
+        <item name="u_res_0x7f04020f">24dp</item>
+        <item name="u_res_0x7f0402b6">3.33dp</item>
+    </style>
+</resources>

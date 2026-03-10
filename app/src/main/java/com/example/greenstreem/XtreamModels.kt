@@ -36,7 +36,9 @@ data class XtreamLiveStream(
     @SerializedName("stream_id") val streamId: Int,
     @SerializedName("stream_icon") val streamIcon: String?,
     @SerializedName("epg_channel_id") val epgId: String?,
-    @SerializedName("category_id") val categoryId: String?
+    @SerializedName("category_id") val categoryId: String?,
+    @SerializedName(value = "tv_archive", alternate = ["catchup", "has_archive"]) val tvArchive: String? = null,
+    @SerializedName(value = "tv_archive_duration", alternate = ["archive_duration"]) val tvArchiveDuration: String? = null
 )
 
 data class XtreamVodStream(

@@ -1,0 +1,7 @@
+package com.google.android.gms.internal.measurement;
+
+/* JADX INFO: loaded from: classes.dex */
+public final class zzjk extends Exception {
+    public zzjk() {
+    }
+}

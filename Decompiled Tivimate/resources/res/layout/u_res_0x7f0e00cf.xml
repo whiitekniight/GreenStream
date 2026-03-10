@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:id="@+id/u_res_0x7f0b0265"
+    android:background="?android:attr/windowBackground"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:transitionGroup="false"
+    android:elevation="@dimen/u_res_0x7f0701a5">
+    <FrameLayout
+        android:id="@+id/u_res_0x7f0b0116"
+        android:background="?attr/u_res_0x7f0401da"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:transitionGroup="false"
+        android:elevation="@dimen/u_res_0x7f0701a6">
+        <TextView
+            android:id="@+id/u_res_0x7f0b0115"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            style="?android:attr/titleTextStyle"/>
+    </FrameLayout>
+    <TextView
+        android:id="@android:id/message"
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        style="?android:attr/subtitleTextStyle"/>
+    <androidx.leanback.widget.VerticalGridView
+        android:id="@android:id/list"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:transitionGroup="true"/>
+</LinearLayout>

@@ -21,15 +21,21 @@ class EpgRowAdapter(
 
     private var channels: List<Channel> = emptyList()
     private val channelPrograms = mutableMapOf<Int, List<XtreamEpgListing>>()
+    private val deferredFocusedRowUpdates = mutableSetOf<Int>()
     private var currentPlayingChannelId: Long? = null
     private var visibilityEditMode = false
     private var hiddenChannelIds: Set<Long> = emptySet()
 
     var focusedRowPosition: Int = RecyclerView.NO_POSITION
 
+    init {
+        setHasStableIds(true)
+    }
+
     class VH(v: View) : RecyclerView.ViewHolder(v) {
         val ivLogo: ImageView = v.findViewById(R.id.ivChannelLogo)
         val ivNowPlayingIndicator: ImageView = v.findViewById(R.id.ivNowPlayingIndicator)
+        val ivCatchupIndicator: ImageView = v.findViewById(R.id.ivCatchupIndicator)
         val ivVisibilityEye: ImageView = v.findViewById(R.id.ivVisibilityEye)
         val tvName: TextView = v.findViewById(R.id.tvChannelName)
         val hsv: HorizontalScrollView = v.findViewById(R.id.hsvRow)
@@ -39,6 +45,7 @@ class EpgRowAdapter(
     fun setData(newChannels: List<Channel>) {
         if (this.channels == newChannels) return
         channelPrograms.clear()
+        deferredFocusedRowUpdates.clear()
         this.channels = newChannels
         notifyDataSetChanged()
     }
@@ -95,13 +102,21 @@ class EpgRowAdapter(
         channelPrograms[streamId] = listings
         val pos = channels.indexOfFirst { it.id.toInt() == streamId }
         if (pos != -1) {
-            notifyItemChanged(pos, "EPG_UPDATE") 
+            if (pos == focusedRowPosition) {
+                deferredFocusedRowUpdates.add(pos)
+            } else {
+                notifyItemChanged(pos, "EPG_UPDATE")
+            }
         }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val v = LayoutInflater.from(parent.context).inflate(R.layout.item_epg_row, parent, false)
         return VH(v)
+    }
+
+    override fun getItemId(position: Int): Long {
+        return channels.getOrNull(position)?.id ?: RecyclerView.NO_ID
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
@@ -125,6 +140,7 @@ class EpgRowAdapter(
         if (!isEpgUpdateOnly) {
             holder.tvName.text = channel.name
             updatePlayingIndicator(holder, position)
+            updateCatchupIndicator(holder, channel)
             updateVisibilityIndicator(holder, channel)
 
             Glide.with(holder.itemView.context)
@@ -163,9 +179,21 @@ class EpgRowAdapter(
             if (channel.id == currentPlayingChannelId) View.VISIBLE else View.GONE
     }
 
+    private fun updateCatchupIndicator(holder: VH, channel: Channel) {
+        holder.ivCatchupIndicator.visibility = if (channel.hasCatchup) View.VISIBLE else View.GONE
+    }
+
     private fun updateProgramBlocks(holder: VH, position: Int, isEpgUpdateOnly: Boolean) {
         val channel = channels[position]
         val programs = channelPrograms[channel.id.toInt()] ?: emptyList()
+
+        if (isEpgUpdateOnly) {
+            val focused = holder.itemView.rootView.findFocus()
+            if (focused != null && isDescendantOf(holder.itemView, focused)) {
+                // Avoid rebuilding currently focused row while user navigates.
+                return
+            }
+        }
         
         if (isEpgUpdateOnly && holder.container.childCount > 0 && programs.isNotEmpty()) {
             val firstChild = holder.container.getChildAt(0)
@@ -187,19 +215,16 @@ class EpgRowAdapter(
             }
         }
 
-        if (focusedRowPosition == position) {
-            val channelId = channel.id.toInt()
-            holder.container.post {
-                if (position == focusedRowPosition) {
-                    val root = holder.itemView.rootView
-                    val currentFocus = root.findFocus()
-                    if (currentFocus == null || currentFocus == root || !currentFocus.isShown) {
-                        val nowIdx = getNowPlayingIndex(channelId)
-                        (holder.container.getChildAt(nowIdx) ?: holder.container.getChildAt(0))?.requestFocus()
-                    }
-                }
-            }
+        // Focus is controlled by MainActivity to avoid row-level focus tug-of-war during async updates.
+    }
+
+    private fun isDescendantOf(parent: View, child: View): Boolean {
+        var current: View? = child
+        while (current != null) {
+            if (current === parent) return true
+            current = current.parent as? View
         }
+        return false
     }
 
     private fun addProgramBlock(inflater: LayoutInflater, container: LinearLayout, title: String, durationMin: Int, channel: Channel, listing: XtreamEpgListing?) {
@@ -230,7 +255,13 @@ class EpgRowAdapter(
                 if (rv != null && rowView != null) {
                     val pos = rv.getChildAdapterPosition(rowView)
                     if (pos != RecyclerView.NO_POSITION) {
+                        val previous = focusedRowPosition
                         focusedRowPosition = pos
+                        if (previous != RecyclerView.NO_POSITION && previous != focusedRowPosition &&
+                            deferredFocusedRowUpdates.remove(previous)
+                        ) {
+                            notifyItemChanged(previous, "EPG_UPDATE")
+                        }
                     }
                 }
                 onProgramFocus(channel, listing)

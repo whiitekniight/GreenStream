@@ -12,5 +12,6 @@ data class Channel(
     val logoUrl: String? = null,
     val streamUrl: String,
     val epgId: String? = null,
-    val number: Int = 0
+    val number: Int = 0,
+    val hasCatchup: Boolean = false
 ) : Serializable

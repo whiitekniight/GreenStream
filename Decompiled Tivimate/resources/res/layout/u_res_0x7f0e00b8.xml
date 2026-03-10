@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:textSize="@dimen/u_res_0x7f07054b"
+    android:gravity="center"
+    android:id="@+id/u_res_0x7f0b0259"
+    android:focusable="true"
+    android:layout_width="wrap_content"
+    android:layout_height="@dimen/u_res_0x7f070548"
+    android:layout_centerHorizontal="true"/>

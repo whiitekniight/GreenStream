@@ -178,10 +178,9 @@
                 android:id="@+id/ivFavoriteStar"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
-                android:src="@android:drawable/btn_star_big_off"
+                android:src="@drawable/ic_favorite_star"
                 app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toTopOf="parent"
-                app:tint="@color/tivimate_accent_green" />
+                app:layout_constraintTop_toTopOf="parent" />
 
         </androidx.constraintlayout.widget.ConstraintLayout>
 
@@ -259,7 +258,7 @@
             android:layout_width="0dp"
             android:layout_height="3dp"
             android:progress="0"
-            android:progressDrawable="@android:drawable/progress_horizontal"
+            android:progressDrawable="@drawable/progress_bar_program"
             app:layout_constraintTop_toBottomOf="@id/rvRecentChannels"
             app:layout_constraintStart_toEndOf="@id/navRail"
             app:layout_constraintEnd_toEndOf="parent" />

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="u_res_0x7f050000">true</bool>
+    <bool name="u_res_0x7f050002">false</bool>
+    <bool name="u_res_0x7f050003">false</bool>
+    <bool name="u_res_0x7f050004">true</bool>
+    <bool name="u_res_0x7f050005">true</bool>
+    <bool name="u_res_0x7f050007">true</bool>
+    <bool name="u_res_0x7f050008">false</bool>
+</resources>

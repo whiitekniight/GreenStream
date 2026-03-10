@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<merge
-  xmlns:android="http://schemas.android.com/apk/res/android">
-    <androidx.leanback.widget.NonOverlappingView android:id="@id/APKTOOL_RENAMED_0x7f0b024e" android:background="@drawable/APKTOOL_RENAMED_0x7f08017f" android:layout_width="match_parent" android:layout_height="match_parent" />
-    <androidx.leanback.widget.NonOverlappingView android:id="@id/APKTOOL_RENAMED_0x7f0b024c" android:background="@drawable/APKTOOL_RENAMED_0x7f08017e" android:layout_width="match_parent" android:layout_height="match_parent" android:alpha="0.0" />
-</merge>

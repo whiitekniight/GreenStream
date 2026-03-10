@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<androidx.leanback.widget.BrowseFrameLayout android:id="@id/APKTOOL_RENAMED_0x7f0b0144" android:layout_width="match_parent" android:layout_height="match_parent"
-  xmlns:android="http://schemas.android.com/apk/res/android">
-    <FrameLayout android:id="@id/APKTOOL_RENAMED_0x7f0b042d" android:layout_width="match_parent" android:layout_height="match_parent" />
-    <androidx.leanback.widget.NonOverlappingFrameLayout android:id="@id/APKTOOL_RENAMED_0x7f0b0121" android:layout_width="match_parent" android:layout_height="match_parent" />
-    <FrameLayout android:id="@id/APKTOOL_RENAMED_0x7f0b0122" android:layout_width="match_parent" android:layout_height="match_parent">
-        <FrameLayout android:id="@id/APKTOOL_RENAMED_0x7f0b012b" android:layout_width="wrap_content" android:layout_height="match_parent" />
-    </FrameLayout>
-</androidx.leanback.widget.BrowseFrameLayout>

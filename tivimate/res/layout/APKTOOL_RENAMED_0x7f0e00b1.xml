@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<merge android:layout_width="match_parent" android:layout_height="match_parent"
-  xmlns:android="http://schemas.android.com/apk/res/android">
-    <TextView android:id="@id/APKTOOL_RENAMED_0x7f0b0201" style="?APKTOOL_RENAMED_0x7f0404dd" />
-    <ImageView android:layout_gravity="center_vertical" android:id="@id/APKTOOL_RENAMED_0x7f0b02f5" android:visibility="gone" android:layout_width="@dimen/APKTOOL_RENAMED_0x7f07018e" android:layout_height="@dimen/APKTOOL_RENAMED_0x7f07018e" android:src="@drawable/APKTOOL_RENAMED_0x7f080191" android:scaleType="fitStart" android:adjustViewBounds="true" />
-    <androidx.leanback.widget.MediaNowPlayingView android:layout_gravity="center_vertical" android:id="@id/APKTOOL_RENAMED_0x7f0b030a" android:visibility="gone" android:layout_width="@dimen/APKTOOL_RENAMED_0x7f07018c" android:layout_height="@dimen/APKTOOL_RENAMED_0x7f07018c" />
-</merge>

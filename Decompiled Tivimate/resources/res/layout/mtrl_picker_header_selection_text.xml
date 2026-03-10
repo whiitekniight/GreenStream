@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:gravity="start|bottom"
+    android:id="@+id/u_res_0x7f0b02aa"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    app:autoSizeTextType="1"
+    app:firstBaselineToTopHeight="@dimen/u_res_0x7f0704bb"
+    app:lineHeight="@dimen/u_res_0x7f0704ad"
+    style="?attr/u_res_0x7f040408"/>

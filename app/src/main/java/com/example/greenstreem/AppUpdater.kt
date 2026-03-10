@@ -27,7 +27,6 @@ data class AppUpdateInfo(
 
 object AppUpdater {
     private const val PREFS = "iptv_prefs"
-    private const val KEY_UPDATE_FEED_URL = "update_feed_url"
     private const val KEY_UPDATER_AUTO_CHECK = "updater_auto_check"
     private const val KEY_LAST_SEEN_UPDATE_VERSION_CODE = "last_seen_update_version_code"
     private const val DEFAULT_UPDATE_FEED_URL =
@@ -40,12 +39,9 @@ object AppUpdater {
     }
 
     suspend fun checkForUpdates(activity: FragmentActivity, manual: Boolean) {
-        val feedUrl = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_UPDATE_FEED_URL, DEFAULT_UPDATE_FEED_URL)
-            .orEmpty()
-            .trim()
+        val feedUrl = DEFAULT_UPDATE_FEED_URL
         if (feedUrl.isBlank()) {
-            if (manual) Toast.makeText(activity, "Set update feed URL first", Toast.LENGTH_SHORT).show()
+            if (manual) Toast.makeText(activity, "Update feed is unavailable", Toast.LENGTH_SHORT).show()
             return
         }
 
