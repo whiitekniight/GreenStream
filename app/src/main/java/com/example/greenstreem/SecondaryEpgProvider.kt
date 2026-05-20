@@ -20,7 +20,15 @@ object SecondaryEpgProvider {
     private const val KEY_SECONDARY_EPG_URL = "secondary_epg_url"
     private const val KEY_SECONDARY_EPG_URLS = "secondary_epg_urls"
     private const val KEY_SECONDARY_EPG_ENABLED = "secondary_epg_enabled"
+    private const val KEY_XMLTV_INDEX_URL = "xmltv_index_url"
+    private const val KEY_XMLTV_INDEXED_AT = "xmltv_indexed_at"
+    private const val KEY_XMLTV_INDEX_VERSION = "xmltv_index_version"
+    private const val XMLTV_INDEX_VERSION = 3
     private const val CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000L
+    private const val XMLTV_KEEP_PAST_SECONDS = 30 * 60L
+    private const val XMLTV_KEEP_FUTURE_SECONDS = 12 * 60 * 60L
+    private const val XMLTV_QUERY_PAST_SECONDS = 30 * 60L
+    private const val XMLTV_QUERY_FUTURE_SECONDS = 8 * 60 * 60L
 
     private val mutex = Mutex()
     private val cacheByUrl = mutableMapOf<String, ParsedXmltv>()
@@ -36,8 +44,7 @@ object SecondaryEpgProvider {
         if (!prefs.getBoolean(KEY_SECONDARY_EPG_ENABLED, false)) return emptyList()
         for (source in configuredSources(context)) {
             val listings = runCatching {
-                ensureLoaded(source.url)
-                firstListingsForKeys(cacheByUrl[source.url]?.listingsByChannel, keys)
+                getIndexedListingsForKeys(context, source.url, keys)
             }.getOrDefault(emptyList())
             if (listings.isNotEmpty()) return listings
         }
@@ -53,8 +60,7 @@ object SecondaryEpgProvider {
         if (!prefs.getBoolean(KEY_SECONDARY_EPG_ENABLED, false)) return emptyList()
         for (source in configuredSources(context)) {
             val listings = runCatching {
-                ensureLoaded(source.url)
-                firstListingsForKeys(cacheByUrl[source.url]?.listingsByChannel, keys)
+                getIndexedListingsForKeys(context, source.url, keys)
             }.getOrDefault(emptyList())
             if (listings.isNotEmpty()) return listings
         }
@@ -66,8 +72,7 @@ object SecondaryEpgProvider {
         val keys = lookupKeysFor(epgId)
         val url = sourceUrl.trim()
         if (keys.isEmpty() || url.isBlank()) return emptyList()
-        ensureLoaded(url)
-        return firstListingsForKeys(cacheByUrl[url]?.listingsByChannel, keys)
+        return getIndexedListingsForKeys(context, url, keys)
     }
 
     suspend fun getChannels(context: Context): List<SecondaryEpgChannel> {
@@ -129,6 +134,90 @@ object SecondaryEpgProvider {
             cacheByUrl[url] = parsed
             loadedAtByUrl[url] = nowLocked
         }
+    }
+
+    private suspend fun getIndexedListingsForKeys(
+        context: Context,
+        sourceUrl: String,
+        keys: List<String>
+    ): List<XtreamEpgListing> = withContext(Dispatchers.IO) {
+        val url = sourceUrl.trim()
+        if (url.isBlank() || keys.isEmpty()) return@withContext emptyList()
+        ensureIndexed(context, url)
+        val dao = AppDatabase.getDatabase(context).xmltvDao()
+        val now = System.currentTimeMillis() / 1000L
+        for (key in keys) {
+            val channelKey = dao.getChannelKeyForAlias(key) ?: key
+            val programs = dao.getProgramsForChannels(
+                channelKeys = listOf(channelKey),
+                windowStart = now - XMLTV_QUERY_PAST_SECONDS,
+                windowEnd = now + XMLTV_QUERY_FUTURE_SECONDS
+            )
+            if (programs.isNotEmpty()) return@withContext programs.map { it.toListing() }
+        }
+        emptyList()
+    }
+
+    private suspend fun ensureIndexed(context: Context, url: String) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val indexedUrl = prefs.getString(KEY_XMLTV_INDEX_URL, "").orEmpty()
+        val indexedAt = prefs.getLong(KEY_XMLTV_INDEXED_AT, 0L)
+        val indexedVersion = prefs.getInt(KEY_XMLTV_INDEX_VERSION, 0)
+        val now = System.currentTimeMillis()
+        val dao = AppDatabase.getDatabase(context).xmltvDao()
+        if (indexedUrl == url &&
+            indexedVersion == XMLTV_INDEX_VERSION &&
+            now - indexedAt < CACHE_MAX_AGE_MS &&
+            dao.countPrograms() > 0
+        ) return
+
+        mutex.withLock {
+            val lockedIndexedUrl = prefs.getString(KEY_XMLTV_INDEX_URL, "").orEmpty()
+            val lockedIndexedAt = prefs.getLong(KEY_XMLTV_INDEXED_AT, 0L)
+            val lockedIndexedVersion = prefs.getInt(KEY_XMLTV_INDEX_VERSION, 0)
+            val lockedNow = System.currentTimeMillis()
+            if (lockedIndexedUrl == url &&
+                lockedIndexedVersion == XMLTV_INDEX_VERSION &&
+                lockedNow - lockedIndexedAt < CACHE_MAX_AGE_MS &&
+                dao.countPrograms() > 0
+            ) return
+            indexXmltv(context, url)
+            prefs.edit()
+                .putString(KEY_XMLTV_INDEX_URL, url)
+                .putLong(KEY_XMLTV_INDEXED_AT, lockedNow)
+                .putInt(KEY_XMLTV_INDEX_VERSION, XMLTV_INDEX_VERSION)
+                .apply()
+        }
+    }
+
+    private suspend fun indexXmltv(context: Context, url: String) = withContext(Dispatchers.IO) {
+        val dao = AppDatabase.getDatabase(context).xmltvDao()
+        dao.clearPrograms()
+        dao.clearAliases()
+        val aliases = linkedMapOf<String, XmltvAliasEntity>()
+        val ambiguousAliases = mutableSetOf<String>()
+        val channelDisplayNames = linkedMapOf<String, String>()
+        val programs = mutableListOf<XmltvProgramEntity>()
+        val result = runCatching {
+            openStream(url).use { input ->
+                val parser = Xml.newPullParser()
+                parser.setInput(input, null)
+                parseXmltvToIndex(parser, channelDisplayNames, aliases, ambiguousAliases, programs) { batch ->
+                    dao.insertPrograms(batch)
+                }
+            }
+            if (aliases.isNotEmpty()) dao.insertAliases(aliases.values.toList())
+            if (programs.isNotEmpty()) {
+                dao.insertPrograms(programs.toList())
+                programs.clear()
+            }
+        }
+        result.onFailure { error ->
+            errorByUrl[url] = error.message ?: error.javaClass.simpleName
+        }.onSuccess {
+            errorByUrl.remove(url)
+        }
+        result.getOrThrow()
     }
 
     private suspend fun loadXmltv(url: String): ParsedXmltv = withContext(Dispatchers.IO) {
@@ -200,11 +289,113 @@ object SecondaryEpgProvider {
             (header[1].toInt() and 0xFF) == 0x8B
     }
 
+    private fun putUniqueAlias(
+        aliasesOut: MutableMap<String, XmltvAliasEntity>,
+        ambiguousAliases: MutableSet<String>,
+        alias: String,
+        channelKey: String
+    ) {
+        if (alias.isBlank() || ambiguousAliases.contains(alias)) return
+        val existing = aliasesOut[alias]
+        when {
+            existing == null -> aliasesOut[alias] = XmltvAliasEntity(alias, channelKey)
+            existing.channelKey != channelKey -> {
+                aliasesOut.remove(alias)
+                ambiguousAliases += alias
+            }
+        }
+    }
+
+    private suspend fun parseXmltvToIndex(
+        parser: XmlPullParser,
+        channelDisplayNames: MutableMap<String, String>,
+        aliasesOut: MutableMap<String, XmltvAliasEntity>,
+        ambiguousAliases: MutableSet<String>,
+        programsOut: MutableList<XmltvProgramEntity>,
+        emitPrograms: suspend (List<XmltvProgramEntity>) -> Unit
+    ) {
+        val nowSeconds = System.currentTimeMillis() / 1000L
+        val keepStart = nowSeconds - XMLTV_KEEP_PAST_SECONDS
+        val keepEnd = nowSeconds + XMLTV_KEEP_FUTURE_SECONDS
+        var event = parser.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            if (event == XmlPullParser.START_TAG) {
+                when (parser.name) {
+                    "channel" -> {
+                        val channelRaw = parser.getAttributeValue(null, "id").orEmpty()
+                        val channelKey = normalizeChannelId(channelRaw)
+                        val displayNames = mutableListOf<String>()
+                        while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "channel")) {
+                            if (parser.eventType == XmlPullParser.START_TAG && parser.name == "display-name") {
+                                parser.nextText().orEmpty().trim().takeIf { it.isNotBlank() }?.let { displayNames += it }
+                            }
+                            parser.next()
+                        }
+                        if (channelKey.isNotBlank()) {
+                            channelDisplayNames[channelKey] = displayNames.firstOrNull() ?: channelRaw
+                            (listOf(channelRaw, channelKey) + displayNames)
+                                .flatMap { lookupKeysFor(it) }
+                                .distinct()
+                                .forEach { alias ->
+                                    putUniqueAlias(aliasesOut, ambiguousAliases, alias, channelKey)
+                                }
+                        }
+                    }
+                    "programme" -> {
+                        val channelRaw = parser.getAttributeValue(null, "channel").orEmpty()
+                        val channelKey = normalizeChannelId(channelRaw)
+                        val start = parseXmltvTime(parser.getAttributeValue(null, "start"))
+                        val stop = parseXmltvTime(parser.getAttributeValue(null, "stop"))
+                        var title = ""
+                        var desc = ""
+
+                        while (!(parser.eventType == XmlPullParser.END_TAG && parser.name == "programme")) {
+                            if (parser.eventType == XmlPullParser.START_TAG) {
+                                when (parser.name) {
+                                    "title" -> title = cleanXmltvText(parser.nextText().orEmpty())
+                                    "desc" -> desc = cleanXmltvText(parser.nextText().orEmpty())
+                                }
+                            }
+                            parser.next()
+                        }
+
+                        if (
+                            channelKey.isNotBlank() &&
+                            start > 0L &&
+                            stop > start &&
+                            stop > keepStart &&
+                            start < keepEnd
+                        ) {
+                            putUniqueAlias(aliasesOut, ambiguousAliases, channelKey, channelKey)
+                            programsOut += XmltvProgramEntity(
+                                id = "${channelKey}_${start}",
+                                channelKey = channelKey,
+                                epgId = channelRaw,
+                                title = title,
+                                description = desc,
+                                startTimestamp = start,
+                                stopTimestamp = stop
+                            )
+                            if (programsOut.size >= 1000) {
+                                emitPrograms(programsOut.toList())
+                                programsOut.clear()
+                            }
+                        }
+                    }
+                }
+            }
+            event = parser.next()
+        }
+    }
+
     private fun parseXmltv(
         parser: XmlPullParser,
         channelsOut: MutableMap<String, SecondaryEpgChannel>,
         programmesOut: MutableMap<String, MutableList<XtreamEpgListing>>
     ) {
+        val nowSeconds = System.currentTimeMillis() / 1000L
+        val keepStart = nowSeconds - XMLTV_KEEP_PAST_SECONDS
+        val keepEnd = nowSeconds + XMLTV_KEEP_FUTURE_SECONDS
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
             if (event == XmlPullParser.START_TAG) {
@@ -244,7 +435,13 @@ object SecondaryEpgProvider {
                             parser.next()
                         }
 
-                        if (channel.isNotBlank() && start > 0L && stop > start) {
+                        if (
+                            channel.isNotBlank() &&
+                            start > 0L &&
+                            stop > start &&
+                            stop > keepStart &&
+                            start < keepEnd
+                        ) {
                             channelsOut.putIfAbsent(channel, SecondaryEpgChannel(channelRaw, channelRaw))
                             val listing = XtreamEpgListing(
                                 id = "${channel}_${start}",
@@ -287,14 +484,37 @@ object SecondaryEpgProvider {
         return 0L
     }
 
+    private fun XmltvProgramEntity.toListing(): XtreamEpgListing {
+        return XtreamEpgListing(
+            id = id,
+            epgId = epgId,
+            title = title,
+            description = description,
+            start = startTimestamp.toString(),
+            end = stopTimestamp.toString(),
+            startTimestamp = startTimestamp,
+            stopTimestamp = stopTimestamp
+        )
+    }
+
+    private fun cleanXmltvText(value: String): String {
+        if (value.isBlank()) return ""
+        return value
+            .replace('\uFFFD', ' ')
+            .filter { ch -> ch == '\n' || ch == '\r' || ch == '\t' || !ch.isISOControl() }
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+    }
+
     private fun normalizeChannelId(value: String): String {
         return value.trim().lowercase(Locale.getDefault())
     }
 
     private fun lookupKeysFor(value: String): List<String> {
         val exact = normalizeChannelId(value)
-        val loose = normalizeChannelName(value)
-        return (listOf(exact, loose) + stationAliases(value)).filter { it.isNotBlank() }.distinct()
+        val directional = normalizeChannelName(value, keepDirection = true)
+        val loose = normalizeChannelName(value, keepDirection = false)
+        return (listOf(exact, directional, loose) + stationAliases(value)).filter { it.isNotBlank() }.distinct()
     }
 
     private fun firstListingsForKeys(
@@ -309,15 +529,18 @@ object SecondaryEpgProvider {
         return emptyList()
     }
 
-    private fun normalizeChannelName(value: String): String {
-        return value
+    private fun normalizeChannelName(value: String, keepDirection: Boolean): String {
+        var normalized = value
             .lowercase(Locale.getDefault())
             .replace(Regex("""^\s*(us|usa|uk|ca|canada|mx|au|nz)\s*[:|\-/\s]+\s*"""), "")
             .replace(Regex("""^\s*\d+\s+"""), "")
             .replace(Regex("""^\s*the\s+"""), "")
-            .replace(Regex("""\b(east|west|pacific|national feed|usa)\b"""), " ")
             .replace(Regex("""\b(network|channel|tv|fhd|uhd|hd|sd|4k|hevc|h265|h\.265)\b"""), "")
-            .replace(Regex("""\[[^\]]*]|\([^)]*\)"""), " ")
+            .replace(Regex("""[\[\]()]"""), " ")
+        if (!keepDirection) {
+            normalized = normalized.replace(Regex("""\b(east|west|pacific|national feed|usa)\b"""), " ")
+        }
+        return normalized
             .replace(Regex("""[^a-z0-9]+"""), " ")
             .trim()
     }

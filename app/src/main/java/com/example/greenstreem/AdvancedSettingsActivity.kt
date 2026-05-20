@@ -12,6 +12,8 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import android.view.View
+import android.view.inputmethod.InputMethodManager
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -284,6 +286,7 @@ class AdvancedSettingsActivity : AppCompatActivity() {
             .setTitle("Additional EPG sources")
             .setView(input)
             .setPositiveButton("Save") { _, _ ->
+                hideKeyboard(input)
                 val urls = input.text?.toString()
                     ?.lines()
                     ?.map { it.trim() }
@@ -299,8 +302,9 @@ class AdvancedSettingsActivity : AppCompatActivity() {
                 Toast.makeText(this, "${urls.size} additional EPG source(s) saved", Toast.LENGTH_SHORT).show()
                 render()
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton("Cancel") { _, _ -> hideKeyboard(input) }
             .setNeutralButton("Clear") { _, _ ->
+                hideKeyboard(input)
                 prefs.edit()
                     .remove("secondary_epg_urls")
                     .remove("secondary_epg_url")
@@ -311,6 +315,12 @@ class AdvancedSettingsActivity : AppCompatActivity() {
                 render()
             }
             .show()
+    }
+
+    private fun hideKeyboard(view: View) {
+        (getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+            ?.hideSoftInputFromWindow(view.windowToken, 0)
+        view.clearFocus()
     }
 
     private fun getSecondaryEpgUrls(): List<String> {
@@ -436,7 +446,24 @@ class AdvancedSettingsActivity : AppCompatActivity() {
                 Spec.Choice("appearance_theme", "Theme", listOf("Dark", "Light", "System"), 0),
                 Spec.Choice("appearance_logo_size", "Channel logo size", listOf("Small", "Medium", "Large"), 1),
                 Spec.Choice("appearance_list_density", "List density", listOf("Compact", "Comfortable", "Large"), 1),
-                Spec.Choice("appearance_accent", "Accent color", listOf("Green", "Blue", "Orange"), 0),
+                Spec.Choice(
+                    "appearance_accent",
+                    "Accent color",
+                    listOf(
+                        "Green",
+                        "Blue",
+                        "Orange",
+                        "Hot Pink",
+                        "Purple",
+                        "Neon Cyan",
+                        "Neon Lime",
+                        "Electric Yellow",
+                        "Neon Red",
+                        "Teal",
+                        "Lavender"
+                    ),
+                    0
+                ),
                 Spec.Choice("appearance_ui_transparency", "User interface transparency", listOf("0%", "20%", "40%", "60%", "80%"), 1),
                 Spec.Action("Channel prefix cleanup", "channel_prefix_cleanup"),
                 Spec.Toggle("appearance_show_logos", "Show channel logos", true),

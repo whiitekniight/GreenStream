@@ -1,7 +1,7 @@
 {
-  "versionCode": 41,
-  "versionName": "1.9.5",
+  "versionCode": 42,
+  "versionName": "1.9.6",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Improves backup discovery and keeps direct file restore available."
+  "notes": "Improves external EPG performance and matching, adds more accent colors, keeps live playback running through settings, and cleans up TV navigation."
 }
 

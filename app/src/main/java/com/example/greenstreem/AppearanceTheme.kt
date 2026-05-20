@@ -15,6 +15,14 @@ object AppearanceTheme {
         return when (context.getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE).getInt(KEY_ACCENT, 0)) {
             1 -> Color.parseColor("#2196F3")
             2 -> Color.parseColor("#FF9800")
+            3 -> Color.parseColor("#E91E63")
+            4 -> Color.parseColor("#9C27B0")
+            5 -> Color.parseColor("#00E5FF")
+            6 -> Color.parseColor("#76FF03")
+            7 -> Color.parseColor("#FFD600")
+            8 -> Color.parseColor("#FF1744")
+            9 -> Color.parseColor("#00BFA5")
+            10 -> Color.parseColor("#B388FF")
             else -> Color.parseColor("#4CAF50")
         }
     }

@@ -48,6 +48,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.C
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -90,6 +91,9 @@ class MainActivity : FragmentActivity() {
     private var currentMode = ContentMode.LIVE_TV
     private var lastBackPressTs = 0L
     private var suppressExitOnUserLeaveHint = false
+    private var mutedForInternalActivity = false
+    private var volumeBeforeInternalActivity = 1f
+    private var trackSelectionBeforeInternalActivity: TrackSelectionParameters? = null
 
     private var player: ExoPlayer? = null
     private lateinit var playerView: PlayerView
@@ -193,6 +197,8 @@ class MainActivity : FragmentActivity() {
     private var vodResumeRunnable: Runnable? = null
     private val epgUiUpdateHandler = Handler(Looper.getMainLooper())
     private var epgUiFlushRunnable: Runnable? = null
+    private val liveFocusSaveHandler = Handler(Looper.getMainLooper())
+    private var liveFocusSaveRunnable: Runnable? = null
     private val pendingEpgUiUpdates = LinkedHashMap<Int, List<XtreamEpgListing>>()
     private var isRvContentScrolling = false
     private var epgUiSuppressUntilMs = 0L
@@ -225,6 +231,7 @@ class MainActivity : FragmentActivity() {
     private val epgFetchQueue = ArrayDeque<Pair<Channel, Boolean>>()
     private var epgActiveFetchCount = 0
     private val maxConcurrentEpgFetches = 6
+    private val xmlOnlyEpgWindowRadius = 6
     private val epgDiskCacheTtlMs = 24L * 60L * 60L * 1000L
     private val gson by lazy { Gson() }
     private val liveStreamsPrefetchInFlight = mutableSetOf<String>()
@@ -508,14 +515,18 @@ class MainActivity : FragmentActivity() {
                     currentState == UiState.EPG_GRID &&
                     now < suppressEpgFocusUpdatesUntilMs
                 ) {
-                    Log.d(TAG, "skip focus update channel=${channel.id} during suppress window")
+                    if (DEBUG_EPG_FOCUS) {
+                        Log.d(TAG, "skip focus update channel=${channel.id} during suppress window")
+                    }
                     return@EpgRowAdapter
                 }
-                Log.d(TAG, "focus update channel=${channel.id} state=$currentState current=${currentChannel?.id} listing=${listing?.title?.take(24)}")
+                if (DEBUG_EPG_FOCUS) {
+                    Log.d(TAG, "focus update channel=${channel.id} state=$currentState current=${currentChannel?.id} listing=${listing?.title?.take(24)}")
+                }
                 val pos = epgAdapter.getPositionForChannelId(channel.id)
                 if (pos != RecyclerView.NO_POSITION) {
                     epgAdapter.focusedRowPosition = pos
-                    saveLiveFocusedRowPosition(pos)
+                    scheduleLiveFocusedRowSave(pos)
                 }
                 updateFocusInfo(channel, listing)
             },
@@ -594,15 +605,25 @@ class MainActivity : FragmentActivity() {
         player?.play()
     }
 
+    override fun onPause() {
+        if (suppressExitOnUserLeaveHint) {
+            muteForInternalActivity()
+        }
+        super.onPause()
+    }
+
     override fun onStop() {
         super.onStop()
-        saveVodResumeProgress()
-        stopVodResumeTicker()
-        player?.pause()
+        if (!suppressExitOnUserLeaveHint) {
+            saveVodResumeProgress()
+            stopVodResumeTicker()
+            player?.pause()
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        restoreVolumeAfterInternalActivity()
         suppressExitOnUserLeaveHint = false
         PlayBillingManager.refreshPurchases()
         applyAppearanceTheme()
@@ -655,10 +676,14 @@ class MainActivity : FragmentActivity() {
             nowMs < suppressEpgFocusUpdatesUntilMs &&
             currentChannel?.id == channel.id
         ) {
-            Log.d(TAG, "updateFocusInfo suppressed channel=${channel.id} state=$currentState")
+            if (DEBUG_EPG_FOCUS) {
+                Log.d(TAG, "updateFocusInfo suppressed channel=${channel.id} state=$currentState")
+            }
             return
         }
-        Log.d(TAG, "updateFocusInfo channel=${channel.id} state=$currentState preserve=$preserveDescription listing=${listing?.title?.take(24)}")
+        if (DEBUG_EPG_FOCUS) {
+            Log.d(TAG, "updateFocusInfo channel=${channel.id} state=$currentState preserve=$preserveDescription listing=${listing?.title?.take(24)}")
+        }
         val effectiveListing = listing ?: resolveCurrentlyAiringListing(channel.id.toInt())
         tvProgramTitleLarge.text = DataUtils.decodeBase64(
             effectiveListing?.title ?: ChannelNameFormatter.format(this, channel.name)
@@ -1617,7 +1642,44 @@ class MainActivity : FragmentActivity() {
 
     private fun launchInternalActivity(intent: Intent) {
         suppressExitOnUserLeaveHint = true
+        muteForInternalActivity()
+        postInternalActivityMutePasses()
         startActivity(intent)
+    }
+
+    private fun muteForInternalActivity() {
+        val currentPlayer = player ?: return
+        if (!mutedForInternalActivity) {
+            volumeBeforeInternalActivity = currentPlayer.volume
+            trackSelectionBeforeInternalActivity = currentPlayer.trackSelectionParameters
+        }
+        mutedForInternalActivity = true
+        currentPlayer.volume = 0f
+        currentPlayer.trackSelectionParameters = currentPlayer.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+            .build()
+    }
+
+    private fun postInternalActivityMutePasses() {
+        hoverHandler.postDelayed({
+            if (suppressExitOnUserLeaveHint) muteForInternalActivity()
+        }, 120L)
+        hoverHandler.postDelayed({
+            if (suppressExitOnUserLeaveHint) muteForInternalActivity()
+        }, 500L)
+    }
+
+    private fun restoreVolumeAfterInternalActivity() {
+        if (!mutedForInternalActivity) return
+        player?.let { currentPlayer ->
+            trackSelectionBeforeInternalActivity?.let { params ->
+                currentPlayer.trackSelectionParameters = params
+            }
+            currentPlayer.volume = volumeBeforeInternalActivity.coerceIn(0f, 1f)
+        }
+        mutedForInternalActivity = false
+        trackSelectionBeforeInternalActivity = null
     }
 
     private fun scheduleInitialStartupWork(autoSelectFirst: Boolean, shouldDefer: Boolean) {
@@ -2843,6 +2905,10 @@ class MainActivity : FragmentActivity() {
             .takeIf { it >= 0 }
             ?: epgAdapter.focusedRowPosition.takeIf { it in channels.indices }
             ?: 0
+        if (shouldUseOnlySecondaryEpg()) {
+            enqueueEpgWindowForChannels(channels, anchorIndex, forceRefresh)
+            return
+        }
         val ordered = ArrayList<Channel>(channels.size)
         ordered.add(channels[anchorIndex])
         var delta = 1
@@ -2856,8 +2922,32 @@ class MainActivity : FragmentActivity() {
         ordered.forEach { fetchRowEpg(it, forceRefresh) }
     }
 
+    private fun enqueueEpgWindowForChannels(
+        channels: List<Channel>,
+        anchorIndex: Int,
+        forceRefresh: Boolean = false,
+        clearPending: Boolean = false
+    ) {
+        if (channels.isEmpty()) return
+        if (clearPending) {
+            epgFetchQueue.clear()
+            epgQueuedStreamIds.clear()
+        }
+        val anchor = anchorIndex.coerceIn(0, channels.lastIndex)
+        val ordered = ArrayList<Channel>((xmlOnlyEpgWindowRadius * 2) + 1)
+        ordered.add(channels[anchor])
+        for (delta in 1..xmlOnlyEpgWindowRadius) {
+            val down = anchor + delta
+            if (down < channels.size) ordered.add(channels[down])
+            val up = anchor - delta
+            if (up >= 0) ordered.add(channels[up])
+        }
+        ordered.forEach { fetchRowEpg(it, forceRefresh) }
+    }
+
     private fun processEpgFetchQueue() {
-        while (epgActiveFetchCount < maxConcurrentEpgFetches && epgFetchQueue.isNotEmpty()) {
+        val concurrencyLimit = if (shouldUseOnlySecondaryEpg()) 2 else maxConcurrentEpgFetches
+        while (epgActiveFetchCount < concurrencyLimit && epgFetchQueue.isNotEmpty()) {
             val (channel, forceRefresh) = epgFetchQueue.removeFirst()
             val streamId = channel.id.toInt()
             epgQueuedStreamIds.remove(streamId)
@@ -2870,47 +2960,68 @@ class MainActivity : FragmentActivity() {
                 }
             }
             if (!epgInFlightStreamIds.add(streamId)) continue
-        val service = XtreamManager.getService() ?: run {
-            epgInFlightStreamIds.remove(streamId)
-                continue
-        }
-            epgActiveFetchCount++
-        val call = service.getShortEpg(
-            XtreamManager.username,
-            XtreamManager.password,
-            streamId,
-            getEpgLimitFromDaysSetting()
-        )
-        pendingEpgCalls.add(call)
-        call.enqueue(object : Callback<XtreamEpgResponse> {
-            override fun onResponse(call: Call<XtreamEpgResponse>, response: Response<XtreamEpgResponse>) {
-                pendingEpgCalls.remove(call)
-                epgInFlightStreamIds.remove(streamId)
-                epgActiveFetchCount = (epgActiveFetchCount - 1).coerceAtLeast(0)
-                processEpgFetchQueue()
-                if (!response.isSuccessful) return
-                val primary = response.body()?.listings.orEmpty()
+            if (shouldUseOnlySecondaryEpg()) {
+                epgActiveFetchCount++
                 lifecycleScope.launch {
-                    val merged = applySecondaryEpgFallback(channel, primary)
-                    cacheEpg(streamId, merged)
-                    setEpgDataBuffered(streamId, merged)
+                    val secondary = applySecondaryEpgFallback(channel, emptyList())
+                    if (secondary.isNotEmpty()) {
+                        cacheEpg(streamId, secondary)
+                        setEpgDataBuffered(streamId, secondary)
+                    }
+                    epgInFlightStreamIds.remove(streamId)
+                    epgActiveFetchCount = (epgActiveFetchCount - 1).coerceAtLeast(0)
+                    processEpgFetchQueue()
                 }
+                continue
             }
-            override fun onFailure(call: Call<XtreamEpgResponse>, t: Throwable) {
-                pendingEpgCalls.remove(call)
+            val service = XtreamManager.getService() ?: run {
                 epgInFlightStreamIds.remove(streamId)
-                epgActiveFetchCount = (epgActiveFetchCount - 1).coerceAtLeast(0)
-                processEpgFetchQueue()
-                lifecycleScope.launch {
-                    val merged = applySecondaryEpgFallback(channel, emptyList())
-                    if (merged.isNotEmpty()) {
+                continue
+            }
+            epgActiveFetchCount++
+            val call = service.getShortEpg(
+                XtreamManager.username,
+                XtreamManager.password,
+                streamId,
+                getEpgLimitFromDaysSetting()
+            )
+            pendingEpgCalls.add(call)
+            call.enqueue(object : Callback<XtreamEpgResponse> {
+                override fun onResponse(call: Call<XtreamEpgResponse>, response: Response<XtreamEpgResponse>) {
+                    pendingEpgCalls.remove(call)
+                    epgInFlightStreamIds.remove(streamId)
+                    epgActiveFetchCount = (epgActiveFetchCount - 1).coerceAtLeast(0)
+                    processEpgFetchQueue()
+                    if (!response.isSuccessful) return
+                    val primary = response.body()?.listings.orEmpty()
+                    lifecycleScope.launch {
+                        val merged = applySecondaryEpgFallback(channel, primary)
                         cacheEpg(streamId, merged)
                         setEpgDataBuffered(streamId, merged)
                     }
                 }
-            }
-        })
+                override fun onFailure(call: Call<XtreamEpgResponse>, t: Throwable) {
+                    pendingEpgCalls.remove(call)
+                    epgInFlightStreamIds.remove(streamId)
+                    epgActiveFetchCount = (epgActiveFetchCount - 1).coerceAtLeast(0)
+                    processEpgFetchQueue()
+                    lifecycleScope.launch {
+                        val merged = applySecondaryEpgFallback(channel, emptyList())
+                        if (merged.isNotEmpty()) {
+                            cacheEpg(streamId, merged)
+                            setEpgDataBuffered(streamId, merged)
+                        }
+                    }
+                }
+            })
         }
+    }
+
+    private fun shouldUseOnlySecondaryEpg(): Boolean {
+        if (!ProEntitlement.isProUnlocked(this)) return false
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_SECONDARY_EPG_ENABLED, false) &&
+            prefs.getInt(KEY_SECONDARY_EPG_MODE, SECONDARY_EPG_MODE_FILL_MISSING) == SECONDARY_EPG_MODE_SECONDARY_ONLY
     }
 
     private fun setEpgDataBuffered(streamId: Int, listings: List<XtreamEpgListing>) {
@@ -3033,6 +3144,15 @@ class MainActivity : FragmentActivity() {
 
     private fun cacheEpg(streamId: Int, listings: List<XtreamEpgListing>) {
         epgCacheByStreamId[streamId] = listings
+        if (shouldUseOnlySecondaryEpg()) {
+            if (epgCacheByStreamId.size <= maxEpgCacheEntries) return
+            val removeCount = epgCacheByStreamId.size - maxEpgCacheEntries
+            repeat(removeCount.coerceAtLeast(0)) {
+                val firstKey = epgCacheByStreamId.entries.firstOrNull()?.key ?: return
+                epgCacheByStreamId.remove(firstKey)
+            }
+            return
+        }
         val now = System.currentTimeMillis()
         lifecycleScope.launch(Dispatchers.IO) {
             db.epgCacheDao().upsert(
@@ -3054,6 +3174,12 @@ class MainActivity : FragmentActivity() {
     private suspend fun hydrateEpgCacheFromDisk(channels: List<Channel>) {
         clearEpgCacheIfRequested()
         if (channels.isEmpty()) return
+        if (shouldUseOnlySecondaryEpg()) {
+            withContext(Dispatchers.IO) {
+                db.epgCacheDao().clearAll()
+            }
+            return
+        }
         val now = System.currentTimeMillis()
         val cutoff = now - epgDiskCacheTtlMs
         val ids = channels.map { it.id.toInt() }.distinct()
@@ -4462,7 +4588,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun returnToCategoriesOnly() {
-        suppressCategoriesToNavUntilMs = System.currentTimeMillis() + 650L
+        suppressCategoriesToNavUntilMs = 0L
         updateUiState(UiState.CATEGORIES)
     }
 
@@ -4949,9 +5075,13 @@ class MainActivity : FragmentActivity() {
         val targetPos = position.coerceIn(0, itemCount - 1)
         epgAdapter.focusedRowPosition = targetPos
         lastGridPosition = targetPos
-        saveLiveFocusedRowPosition(targetPos)
-        currentLiveCategoryId?.takeIf { it.isNotBlank() }?.let { categoryId ->
-            saveLiveFocusedRowPositionForCategory(categoryId, targetPos)
+        scheduleLiveFocusedRowSave(targetPos)
+        if (shouldUseOnlySecondaryEpg() && currentLiveChannels.isNotEmpty()) {
+            enqueueEpgWindowForChannels(
+                channels = currentLiveChannels,
+                anchorIndex = targetPos,
+                clearPending = true
+            )
         }
 
         // Scroll and focus in ONE post to avoid focus jumping between two separate async calls
@@ -5494,6 +5624,25 @@ class MainActivity : FragmentActivity() {
             .apply()
     }
 
+    private fun scheduleLiveFocusedRowSave(
+        position: Int,
+        categoryId: String? = currentLiveCategoryId
+    ) {
+        val safePosition = position.coerceAtLeast(0)
+        val safeCategoryId = categoryId?.takeIf { it.isNotBlank() }
+        liveFocusSaveRunnable?.let { liveFocusSaveHandler.removeCallbacks(it) }
+        liveFocusSaveRunnable = Runnable {
+            val editor = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+                .edit()
+                .putInt(KEY_LAST_LIVE_FOCUSED_ROW, safePosition)
+            if (safeCategoryId != null) {
+                editor.putInt("$KEY_LIVE_FOCUSED_ROW_PREFIX$safeCategoryId", safePosition)
+            }
+            editor.apply()
+        }
+        liveFocusSaveHandler.postDelayed(liveFocusSaveRunnable!!, LIVE_FOCUS_SAVE_DELAY_MS)
+    }
+
     private fun getLiveFocusedRowPositionForCategory(categoryId: String): Int {
         return getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
             .getInt("$KEY_LIVE_FOCUSED_ROW_PREFIX$categoryId", 0)
@@ -5572,7 +5721,7 @@ class MainActivity : FragmentActivity() {
         }
 
         restorePlayingChannelFocusOnNextGuideOpen = true
-        suppressBackToCategoriesUntilMs = System.currentTimeMillis() + 900L
+        suppressBackToCategoriesUntilMs = 0L
         lastBackPressTs = 0L
         updateUiState(UiState.EPG_GRID)
         if (row != -1) {
@@ -5707,6 +5856,19 @@ class MainActivity : FragmentActivity() {
         }
         currentChannel = normalizedChannel
         epgAdapter.setCurrentPlayingChannelId(normalizedChannel.id)
+        val targetState = when {
+            openInGuide -> null
+            wasFullScreen -> UiState.FULL_SCREEN
+            else -> null
+        }
+        val liveUrls = buildLivePlaybackUrls(normalizedChannel)
+        val liveUrl = liveUrls.firstOrNull().orEmpty()
+        playLiveMedia(
+            liveUrls,
+            normalizedChannel.name,
+            targetState
+        )
+
         if (!resolvedCategoryId.isNullOrBlank()) {
             saveLastCategoryIdForMode(ContentMode.LIVE_TV, resolvedCategoryId)
         }
@@ -5728,24 +5890,12 @@ class MainActivity : FragmentActivity() {
             respectSuppressWindow = !openInGuide
         )
 
-        val targetState = when {
-            openInGuide -> null
-            wasFullScreen -> UiState.FULL_SCREEN
-            else -> null
-        }
-        val liveUrls = buildLivePlaybackUrls(normalizedChannel)
-        val liveUrl = liveUrls.firstOrNull().orEmpty()
         saveLastPlayback(
             type = LAST_PLAYBACK_LIVE,
             title = normalizedChannel.name,
             url = liveUrl,
             resumeKey = null,
             channelId = normalizedChannel.id
-        )
-        playLiveMedia(
-            liveUrls,
-            normalizedChannel.name,
-            targetState
         )
         if (openInGuide && descriptionBeforeClick.isNotBlank()) {
             tvProgramDescription.postDelayed({
@@ -6345,6 +6495,8 @@ class MainActivity : FragmentActivity() {
 
     companion object {
         private const val TAG = "GreenStreemEpg"
+        private const val DEBUG_EPG_FOCUS = false
+        private const val LIVE_FOCUS_SAVE_DELAY_MS = 450L
         private const val IPTV_PLAYER_USER_AGENT = "VLC/3.0.20 LibVLC/3.0.20"
         private val IPTV_PLAYER_HEADERS = mapOf(
             "Accept" to "*/*",

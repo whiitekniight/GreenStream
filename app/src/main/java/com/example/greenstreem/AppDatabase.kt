@@ -15,9 +15,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         GroupOrder::class,
         HiddenChannel::class,
         EpgCacheEntry::class,
-        EpgChannelMapping::class
+        EpgChannelMapping::class,
+        XmltvAliasEntity::class,
+        XmltvProgramEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -28,6 +30,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun hiddenChannelDao(): HiddenChannelDao
     abstract fun epgCacheDao(): EpgCacheDao
     abstract fun epgChannelMappingDao(): EpgChannelMappingDao
+    abstract fun xmltvDao(): XmltvDao
 
     companion object {
         @Volatile
@@ -40,7 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "iptv_database"
                 )
-                .addMigrations(MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -76,6 +79,36 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS xmltv_aliases (
+                        aliasKey TEXT NOT NULL,
+                        channelKey TEXT NOT NULL,
+                        PRIMARY KEY(aliasKey)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS xmltv_programs (
+                        id TEXT NOT NULL,
+                        channelKey TEXT NOT NULL,
+                        epgId TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        startTimestamp INTEGER NOT NULL,
+                        stopTimestamp INTEGER NOT NULL,
+                        PRIMARY KEY(id)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_xmltv_programs_channelKey_startTimestamp ON xmltv_programs(channelKey, startTimestamp)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_xmltv_programs_channelKey_stopTimestamp ON xmltv_programs(channelKey, stopTimestamp)")
             }
         }
     }

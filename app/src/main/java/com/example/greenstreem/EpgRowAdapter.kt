@@ -300,14 +300,25 @@ class EpgRowAdapter(
         holder.container.removeAllViews()
         val inflater = LayoutInflater.from(holder.itemView.context)
 
-        if (programs.isEmpty()) {
+        val displayPrograms = programsForDisplay(programs)
+
+        if (displayPrograms.isEmpty()) {
             addProgramBlock(inflater, holder.container, "No Information", 180, channel, null)
         } else {
-            programs.forEach { prog -> 
+            displayPrograms.forEach { prog ->
                 val durationMin = ((prog.stopTimestamp - prog.startTimestamp) / 60).toInt()
                 addProgramBlock(inflater, holder.container, DataUtils.decodeBase64(prog.title), durationMin, channel, prog)
             }
         }
+    }
+
+    private fun programsForDisplay(programs: List<XtreamEpgListing>): List<XtreamEpgListing> {
+        if (programs.isEmpty()) return emptyList()
+        val now = System.currentTimeMillis() / 1000L
+        val startWindow = now - 30 * 60L
+        val endWindow = now + 8 * 60 * 60L
+        val visible = programs.filter { it.stopTimestamp > startWindow && it.startTimestamp < endWindow }
+        return (visible.ifEmpty { programs.take(12) }).take(24)
     }
 
     private fun isDescendantOf(parent: View, child: View): Boolean {
