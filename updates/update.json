@@ -1,7 +1,7 @@
 {
-  "versionCode": 42,
-  "versionName": "1.9.6",
+  "versionCode": 43,
+  "versionName": "1.9.7",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Improves external EPG performance and matching, adds more accent colors, keeps live playback running through settings, and cleans up TV navigation."
+  "notes": "Updates GreenStreem branding for Shield, Fire TV, and branded sideload users."
 }
 
