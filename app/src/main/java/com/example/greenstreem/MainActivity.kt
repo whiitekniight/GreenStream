@@ -2179,7 +2179,11 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun shouldLoadLiveCategoryForStartupEpg(mode: ContentMode, autoSelectFirst: Boolean): Boolean {
-        return mode == ContentMode.LIVE_TV && pendingEpgRefresh && !autoSelectFirst
+        if (mode != ContentMode.LIVE_TV || autoSelectFirst) return false
+        val needsPlayingChannelHydrated =
+            currentChannel != null &&
+                (currentLiveChannels.isEmpty() || currentChannel?.name == "Resuming...")
+        return pendingEpgRefresh || needsPlayingChannelHydrated
     }
 
     private fun liveCategoryForStartupEpg(rows: List<XtreamCategory>): XtreamCategory? {
@@ -2741,6 +2745,9 @@ class MainActivity : FragmentActivity() {
             val sortedChannels = applyLiveChannelSort(channels, categoryId)
             currentLiveCategoryId = categoryId
             currentLiveChannels = sortedChannels
+            if (currentChannel?.name == "Resuming..." || sortedChannels.any { it.id == currentChannel?.id }) {
+                syncCurrentLiveChannelFromCachedStreams()
+            }
             currentLiveChannelIndex = sortedChannels.indexOfFirst { it.id == currentChannel?.id }
             epgAdapter.setData(sortedChannels)
             hydrateEpgCacheFromDisk(sortedChannels)
@@ -2752,6 +2759,19 @@ class MainActivity : FragmentActivity() {
                 }
             }
             val playingIdx = sortedChannels.indexOfFirst { it.id == currentChannel?.id }
+            currentChannel
+                ?.takeIf { playingIdx in sortedChannels.indices }
+                ?.let { channel ->
+                    updateFocusInfo(
+                        channel,
+                        epgCacheByStreamId[channel.id.toInt()]
+                            ?.firstOrNull { listing ->
+                                val now = System.currentTimeMillis() / 1000
+                                now >= listing.startTimestamp && now < listing.stopTimestamp
+                            },
+                        respectSuppressWindow = false
+                    )
+                }
             val lastPlayedIdx = if (categoryId == prefs.getString("last_category_id", "")) {
                 sortedChannels.indexOfFirst { it.id == lastChanId }
             } else {
@@ -5983,7 +6003,14 @@ class MainActivity : FragmentActivity() {
         currentLivePlaybackUrls = urls.ifEmpty { listOf(url) }
         currentLivePlaybackUrlIndex = 0
         currentLivePlaybackUrl = url
-        saveLastPlayback(LAST_PLAYBACK_LIVE, currentChannel?.name ?: "Live TV", url, null, id)
+        val savedTitle = prefs.getString(KEY_LAST_PLAYBACK_TITLE, "").orEmpty()
+        saveLastPlayback(
+            LAST_PLAYBACK_LIVE,
+            savedTitle.takeIf { it.isNotBlank() && it != "Resuming..." } ?: "Live TV",
+            url,
+            null,
+            id
+        )
         resetLivePlaybackWatchdog()
         player?.setMediaItem(createLiveMediaItem(url))
         player?.prepare(); player?.play()
