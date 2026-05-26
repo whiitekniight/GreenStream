@@ -98,6 +98,11 @@ class EpgRowAdapter(
         }
     }
 
+    fun refreshGuideClock() {
+        if (channels.isEmpty()) return
+        notifyItemRangeChanged(0, channels.size, "EPG_CLOCK")
+    }
+
     fun setChannelVisibilityEditMode(enabled: Boolean) {
         if (visibilityEditMode == enabled) return
         visibilityEditMode = enabled
@@ -158,7 +163,7 @@ class EpgRowAdapter(
     }
 
     override fun onBindViewHolder(holder: VH, position: Int, payloads: MutableList<Any>) {
-        if (payloads.contains("EPG_UPDATE")) {
+        if (payloads.contains("EPG_UPDATE") || payloads.contains("EPG_CLOCK")) {
             updateProgramBlocks(holder, position, true)
         } else if (payloads.contains("PLAYING_CHANGED")) {
             updatePlayingIndicator(holder, position)

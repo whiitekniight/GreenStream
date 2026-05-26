@@ -207,6 +207,7 @@ class MainActivity : FragmentActivity() {
     private var epgFocusRequestToken = 0
     private val uiTickHandler = Handler(Looper.getMainLooper())
     private var uiTickRunnable: Runnable? = null
+    private var lastEpgClockRefreshMinute: Long = -1L
     private val sleepTimerHandler = Handler(Looper.getMainLooper())
     private var sleepTimerRunnable: Runnable? = null
     private val startupWorkHandler = Handler(Looper.getMainLooper())
@@ -1705,10 +1706,32 @@ class MainActivity : FragmentActivity() {
         uiTickRunnable = Runnable {
             renderDynamicTimeRuler()
             updateNowTimeLine()
+            refreshLiveGuideForClockTick()
             uiTickHandler.postDelayed(uiTickRunnable!!, 10_000L)
         }
         updateNowTimeLine()
+        refreshLiveGuideForClockTick(force = true)
         uiTickHandler.postDelayed(uiTickRunnable!!, 10_000L)
+    }
+
+    private fun refreshLiveGuideForClockTick(force: Boolean = false) {
+        if (currentMode != ContentMode.LIVE_TV) return
+        val minute = System.currentTimeMillis() / 60_000L
+        if (!force && minute == lastEpgClockRefreshMinute) return
+        lastEpgClockRefreshMinute = minute
+
+        if (::epgAdapter.isInitialized &&
+            (currentState == UiState.EPG_GRID || currentState == UiState.CATEGORIES)
+        ) {
+            epgAdapter.refreshGuideClock()
+        }
+        currentChannel?.let { channel ->
+            updateFocusInfo(
+                channel,
+                resolveCurrentlyAiringListing(channel.id.toInt()),
+                respectSuppressWindow = false
+            )
+        }
     }
 
     private fun startLivePlaybackWatchdog() {
@@ -4540,6 +4563,7 @@ class MainActivity : FragmentActivity() {
                 updateRecentChannelsVisibility()
                 rvCategories.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                 rvContent.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+                refreshLiveGuideForClockTick(force = true)
                 
                 rvContent.postDelayed({
                     if (currentMode == ContentMode.LIVE_TV) {

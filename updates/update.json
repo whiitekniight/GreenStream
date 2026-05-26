@@ -1,7 +1,7 @@
 {
-  "versionCode": 44,
-  "versionName": "1.9.8",
+  "versionCode": 45,
+  "versionName": "1.9.9",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Fixes startup live TV info so the playing channel hydrates instead of staying on Resuming."
+  "notes": "Keeps the live TV guide synced with real time when returning to the EPG."
 }
 
