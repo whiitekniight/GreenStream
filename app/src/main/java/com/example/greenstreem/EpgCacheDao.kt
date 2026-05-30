@@ -7,6 +7,9 @@ import androidx.room.Query
 
 @Dao
 interface EpgCacheDao {
+    @Query("SELECT * FROM epg_cache")
+    suspend fun getAll(): List<EpgCacheEntry>
+
     @Query("SELECT * FROM epg_cache WHERE streamId IN (:streamIds)")
     suspend fun getByStreamIds(streamIds: List<Int>): List<EpgCacheEntry>
 

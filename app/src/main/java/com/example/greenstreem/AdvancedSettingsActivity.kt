@@ -47,6 +47,11 @@ class AdvancedSettingsActivity : AppCompatActivity() {
         render()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::rvOptions.isInitialized) render()
+    }
+
     private fun render() {
         val labels = specs.map { spec ->
             when (spec) {
@@ -54,6 +59,9 @@ class AdvancedSettingsActivity : AppCompatActivity() {
                 is Spec.Toggle -> "${spec.title}: ${if (prefs.getBoolean(spec.key, spec.default)) "On" else "Off"}"
                 is Spec.Choice -> "${spec.title}: ${spec.options[prefs.getInt(spec.key, spec.defaultIndex).coerceIn(spec.options.indices)]}"
                 is Spec.Action -> when (spec.actionKey) {
+                    "update_epg_now" -> {
+                        if (isEpgUpdateInProgress()) "${spec.title}: Updating..." else spec.title
+                    }
                     "secondary_epg_url" -> {
                         val urls = getSecondaryEpgUrls()
                         if (urls.isEmpty()) "${spec.title}: Not set" else "${spec.title}: ${urls.size} set"
@@ -130,7 +138,12 @@ class AdvancedSettingsActivity : AppCompatActivity() {
             "secondary_epg_url" -> showSecondaryEpgUrlDialog()
             "channel_prefix_cleanup" -> showChannelPrefixDialog()
             "update_epg_now" -> {
-                prefs.edit().putBoolean("epg_force_refresh_now", true).apply()
+                prefs.edit()
+                    .putBoolean(KEY_EPG_FORCE_REFRESH_NOW, true)
+                    .putBoolean(KEY_EPG_UPDATE_IN_PROGRESS, true)
+                    .putLong(KEY_EPG_UPDATE_STARTED_AT, System.currentTimeMillis())
+                    .apply()
+                render()
                 Toast.makeText(this, "EPG update requested", Toast.LENGTH_SHORT).show()
             }
             "clear_epg" -> {
@@ -504,6 +517,20 @@ class AdvancedSettingsActivity : AppCompatActivity() {
         }
     }
 
+    private fun isEpgUpdateInProgress(): Boolean {
+        if (!prefs.getBoolean(KEY_EPG_UPDATE_IN_PROGRESS, false)) return false
+        val startedAt = prefs.getLong(KEY_EPG_UPDATE_STARTED_AT, 0L)
+        val stale = startedAt > 0L && System.currentTimeMillis() - startedAt > 15L * 60L * 1000L
+        if (stale) {
+            prefs.edit()
+                .putBoolean(KEY_EPG_UPDATE_IN_PROGRESS, false)
+                .remove(KEY_EPG_UPDATE_STARTED_AT)
+                .apply()
+            return false
+        }
+        return true
+    }
+
     private fun gateProEpgSpecs(epgSpecs: List<Spec>): List<Spec> {
         if (ProEntitlement.isProUnlocked(this)) return epgSpecs
         val freeKeys = setOf("epg_update_on_start", "epg_click_to_play")
@@ -547,5 +574,8 @@ class AdvancedSettingsActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_SECTION = "section"
         private const val KEY_PARENTAL_PIN_HASH = "parental_pin_hash"
+        private const val KEY_EPG_FORCE_REFRESH_NOW = "epg_force_refresh_now"
+        private const val KEY_EPG_UPDATE_IN_PROGRESS = "epg_update_in_progress"
+        private const val KEY_EPG_UPDATE_STARTED_AT = "epg_update_started_at"
     }
 }

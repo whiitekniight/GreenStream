@@ -23,10 +23,10 @@ object SecondaryEpgProvider {
     private const val KEY_XMLTV_INDEX_URL = "xmltv_index_url"
     private const val KEY_XMLTV_INDEXED_AT = "xmltv_indexed_at"
     private const val KEY_XMLTV_INDEX_VERSION = "xmltv_index_version"
-    private const val XMLTV_INDEX_VERSION = 3
-    private const val CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000L
-    private const val XMLTV_KEEP_PAST_SECONDS = 30 * 60L
-    private const val XMLTV_KEEP_FUTURE_SECONDS = 12 * 60 * 60L
+    private const val XMLTV_INDEX_VERSION = 4
+    private const val CACHE_MAX_AGE_MS = 30 * 60 * 60 * 1000L
+    private const val XMLTV_KEEP_PAST_SECONDS = 6 * 60 * 60L
+    private const val XMLTV_KEEP_FUTURE_SECONDS = 72 * 60 * 60L
     private const val XMLTV_QUERY_PAST_SECONDS = 30 * 60L
     private const val XMLTV_QUERY_FUTURE_SECONDS = 8 * 60 * 60L
 
@@ -65,6 +65,18 @@ object SecondaryEpgProvider {
             if (listings.isNotEmpty()) return listings
         }
         return emptyList()
+    }
+
+    suspend fun getCachedListingsForChannelCandidates(context: Context, candidates: List<String>): List<XtreamEpgListing> {
+        if (!ProEntitlement.isProUnlocked(context)) return emptyList()
+        val keys = candidates.flatMap { lookupKeysFor(it) }.distinct()
+        if (keys.isEmpty()) return emptyList()
+
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_SECONDARY_EPG_ENABLED, false)) return emptyList()
+        return runCatching {
+            getStoredListingsForKeys(context, keys)
+        }.getOrDefault(emptyList())
     }
 
     suspend fun getListingsForChannel(context: Context, epgId: String, sourceUrl: String): List<XtreamEpgListing> {
@@ -144,7 +156,16 @@ object SecondaryEpgProvider {
         val url = sourceUrl.trim()
         if (url.isBlank() || keys.isEmpty()) return@withContext emptyList()
         ensureIndexed(context, url)
+        getStoredListingsForKeys(context, keys)
+    }
+
+    private suspend fun getStoredListingsForKeys(
+        context: Context,
+        keys: List<String>
+    ): List<XtreamEpgListing> = withContext(Dispatchers.IO) {
+        if (keys.isEmpty()) return@withContext emptyList()
         val dao = AppDatabase.getDatabase(context).xmltvDao()
+        if (dao.countPrograms() <= 0) return@withContext emptyList()
         val now = System.currentTimeMillis() / 1000L
         for (key in keys) {
             val channelKey = dao.getChannelKeyForAlias(key) ?: key
@@ -262,8 +283,8 @@ object SecondaryEpgProvider {
 
     private fun openStream(url: String): InputStream {
         val conn = URL(url).openConnection().apply {
-            connectTimeout = 12_000
-            readTimeout = 20_000
+            connectTimeout = 20_000
+            readTimeout = 180_000
             setRequestProperty("User-Agent", "GreenStreem/1.0")
         }
         val encoding = conn.contentEncoding.orEmpty().lowercase(Locale.getDefault())

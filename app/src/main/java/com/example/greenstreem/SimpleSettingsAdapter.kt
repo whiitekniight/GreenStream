@@ -4,6 +4,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.widget.SwitchCompat
 import androidx.recyclerview.widget.RecyclerView
@@ -16,6 +17,7 @@ class SimpleSettingsAdapter(
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val text: TextView = view.findViewById(android.R.id.text1)
         val toggle: SwitchCompat? = view.findViewById(android.R.id.toggle)
+        val progress: ProgressBar? = view.findViewById(android.R.id.progress)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -33,7 +35,14 @@ class SimpleSettingsAdapter(
             isClickable = false
             isFocusable = false
         }
+        val progress = ProgressBar(context).apply {
+            id = android.R.id.progress
+            isIndeterminate = true
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(context.dp(30), context.dp(30))
+        }
         row.addView(text)
+        row.addView(progress)
         row.addView(toggle)
         return ViewHolder(row)
     }
@@ -44,6 +53,8 @@ class SimpleSettingsAdapter(
         holder.text.text = toggleState?.first ?: item
         holder.text.setTextColor(android.graphics.Color.WHITE)
         holder.text.textSize = 18f
+        val loading = item.contains(": Updating", ignoreCase = true)
+        holder.progress?.visibility = if (loading) View.VISIBLE else View.GONE
         holder.toggle?.visibility = if (toggleState == null) View.GONE else View.VISIBLE
         holder.toggle?.isChecked = toggleState?.second == true
         holder.itemView.isFocusable = true
@@ -70,4 +81,7 @@ class SimpleSettingsAdapter(
             else -> null
         }
     }
+
+    private fun android.content.Context.dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 }

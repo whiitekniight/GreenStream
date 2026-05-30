@@ -334,7 +334,7 @@
                             android:layout_height="match_parent"
                             android:gravity="center_vertical"
                             android:orientation="horizontal"
-                            android:paddingStart="220dp" />
+                            android:paddingStart="0dp" />
                     </HorizontalScrollView>
 
                     <TextView
@@ -387,11 +387,30 @@
 
                 <View
                     android:id="@+id/nowTimeLine"
-                    android:layout_width="2dp"
+                    android:layout_width="1dp"
                     android:layout_height="match_parent"
                     android:layout_gravity="start"
-                    android:background="#50A8D8FF"
+                    android:alpha="0.72"
+                    android:background="#A8D8FF"
                     android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/tvGuideClock"
+                    android:layout_width="220dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="top|start"
+                    android:background="@android:color/transparent"
+                    android:ellipsize="end"
+                    android:gravity="center_vertical"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="8dp"
+                    android:textColor="#7EC8FF"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    tools:text="Sat, Oct 7, 5:32 PM" />
             </FrameLayout>
         </LinearLayout>
 
@@ -415,6 +434,7 @@
             android:layout_height="3dp"
             android:progress="0"
             android:progressDrawable="@drawable/progress_bar_program"
+            android:visibility="gone"
             app:layout_constraintTop_toBottomOf="@id/rvRecentChannels"
             app:layout_constraintStart_toEndOf="@id/navRail"
             app:layout_constraintEnd_toEndOf="parent" />
@@ -572,12 +592,12 @@
 
             <TextView
                 android:id="@+id/tvMovieProgressStart"
-                android:layout_width="0dp"
+                android:layout_width="76dp"
                 android:layout_height="wrap_content"
                 android:gravity="start"
                 android:textColor="@color/tivimate_text_primary"
                 android:textSize="13sp"
-                tools:text="14:22" />
+                tools:text="1:35:00" />
 
             <ProgressBar
                 android:id="@+id/pbMovieControlsProgress"
@@ -585,20 +605,20 @@
                 android:layout_width="0dp"
                 android:layout_height="8dp"
                 android:layout_weight="1"
-                android:layout_marginStart="0dp"
-                android:layout_marginEnd="0dp"
+                android:layout_marginStart="10dp"
+                android:layout_marginEnd="10dp"
                 android:max="1000"
                 android:progress="0"
                 android:progressDrawable="@drawable/progress_bar_program" />
 
             <TextView
                 android:id="@+id/tvMovieProgressEnd"
-                android:layout_width="0dp"
+                android:layout_width="86dp"
                 android:layout_height="wrap_content"
                 android:gravity="end"
                 android:textColor="@color/tivimate_text_secondary"
                 android:textSize="13sp"
-                tools:text="1:35:00" />
+                tools:text="-1:20:38" />
         </LinearLayout>
 
         <TextView

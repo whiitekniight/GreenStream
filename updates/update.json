@@ -1,7 +1,7 @@
 {
-  "versionCode": 45,
-  "versionName": "1.9.9",
+  "versionCode": 46,
+  "versionName": "1.9.10",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Keeps the live TV guide synced with real time when returning to the EPG."
+  "notes": "Improves live TV guide timing, EPG refresh reliability, search history, poster browsing, and clock display."
 }
 

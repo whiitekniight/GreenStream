@@ -26,6 +26,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
+import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,10 +45,18 @@ class SearchActivity : AppCompatActivity() {
     private var allChannels: List<Channel> = emptyList()
     private var allMovies: List<XtreamVodStream> = emptyList()
     private var allSeries: List<XtreamSeries> = emptyList()
+    private var allPrograms: List<ProgramSearchResult> = emptyList()
     private var recentQueries: MutableList<String> = mutableListOf()
     private val searchHandler = Handler(Looper.getMainLooper())
     private var searchRunnable: Runnable? = null
     private var hasActiveSearch = false
+    private var lastSearchQuery: String = ""
+    private val gson = Gson()
+
+    private data class ProgramSearchResult(
+        val channel: Channel,
+        val title: String
+    )
 
     private val searchAdapter = GlobalSearchAdapter(
         onRecentClick = { query ->
@@ -60,6 +69,7 @@ class SearchActivity : AppCompatActivity() {
         onClearRecent = { confirmClearRecentQueries() },
         onChannelClick = { channel -> playChannel(channel) },
         onChannelLongClick = { channel -> showChannelActions(channel) },
+        onProgramClick = { result -> playChannel(result.channel) },
         onMovieClick = { movie -> showMovieActions(movie) },
         onMovieLongClick = { movie -> showMovieActions(movie) },
         onSeriesClick = { series -> openSeries(series) },
@@ -80,7 +90,8 @@ class SearchActivity : AppCompatActivity() {
                     GlobalSearchAdapter.TYPE_HEADER,
                     GlobalSearchAdapter.TYPE_RECENT_QUERY,
                     GlobalSearchAdapter.TYPE_RECENT_CLEAR,
-                    GlobalSearchAdapter.TYPE_CHANNEL -> 6
+                    GlobalSearchAdapter.TYPE_CHANNEL,
+                    GlobalSearchAdapter.TYPE_PROGRAM -> 6
                     else -> 1
                 }
             }
@@ -146,6 +157,8 @@ class SearchActivity : AppCompatActivity() {
                     allChannels = response.body()?.map { stream ->
                         Channel(id = stream.streamId.toLong(), name = stream.name, group = "", logoUrl = stream.streamIcon, streamUrl = "", epgId = stream.epgId, number = stream.num)
                     } ?: emptyList()
+                    loadCachedProgramSearchIndex()
+                    rerunVisibleSearch()
                 }
             }
             override fun onFailure(call: Call<List<XtreamLiveStream>>, t: Throwable) {}
@@ -155,27 +168,106 @@ class SearchActivity : AppCompatActivity() {
         service.getVodStreams(user, pass).enqueue(object : Callback<List<XtreamVodStream>> {
             override fun onResponse(call: Call<List<XtreamVodStream>>, response: Response<List<XtreamVodStream>>) {
                 if (response.isSuccessful) {
-                    allMovies = response.body() ?: emptyList()
+                    mergeMovies(response.body().orEmpty())
+                    rerunVisibleSearch()
                 }
             }
             override fun onFailure(call: Call<List<XtreamVodStream>>, t: Throwable) {}
+        })
+        service.getVodCategories(user, pass).enqueue(object : Callback<List<XtreamCategory>> {
+            override fun onResponse(call: Call<List<XtreamCategory>>, response: Response<List<XtreamCategory>>) {
+                if (!response.isSuccessful) return
+                response.body().orEmpty().forEach { category ->
+                    service.getVodStreams(user, pass, category.id).enqueue(object : Callback<List<XtreamVodStream>> {
+                        override fun onResponse(call: Call<List<XtreamVodStream>>, response: Response<List<XtreamVodStream>>) {
+                            if (response.isSuccessful) {
+                                mergeMovies(response.body().orEmpty())
+                                rerunVisibleSearch()
+                            }
+                        }
+                        override fun onFailure(call: Call<List<XtreamVodStream>>, t: Throwable) {}
+                    })
+                }
+            }
+            override fun onFailure(call: Call<List<XtreamCategory>>, t: Throwable) {}
         })
 
         // Fetch Series
         service.getSeries(user, pass).enqueue(object : Callback<List<XtreamSeries>> {
             override fun onResponse(call: Call<List<XtreamSeries>>, response: Response<List<XtreamSeries>>) {
                 if (response.isSuccessful) {
-                    allSeries = response.body() ?: emptyList()
+                    mergeSeries(response.body().orEmpty())
+                    rerunVisibleSearch()
                 }
             }
             override fun onFailure(call: Call<List<XtreamSeries>>, t: Throwable) {}
         })
+        service.getSeriesCategories(user, pass).enqueue(object : Callback<List<XtreamCategory>> {
+            override fun onResponse(call: Call<List<XtreamCategory>>, response: Response<List<XtreamCategory>>) {
+                if (!response.isSuccessful) return
+                response.body().orEmpty().forEach { category ->
+                    service.getSeries(user, pass, category.id).enqueue(object : Callback<List<XtreamSeries>> {
+                        override fun onResponse(call: Call<List<XtreamSeries>>, response: Response<List<XtreamSeries>>) {
+                            if (response.isSuccessful) {
+                                mergeSeries(response.body().orEmpty())
+                                rerunVisibleSearch()
+                            }
+                        }
+                        override fun onFailure(call: Call<List<XtreamSeries>>, t: Throwable) {}
+                    })
+                }
+            }
+            override fun onFailure(call: Call<List<XtreamCategory>>, t: Throwable) {}
+        })
+    }
+
+    private fun mergeMovies(movies: List<XtreamVodStream>) {
+        if (movies.isEmpty()) return
+        allMovies = (allMovies + movies).distinctBy { it.streamId }
+    }
+
+    private fun mergeSeries(series: List<XtreamSeries>) {
+        if (series.isEmpty()) return
+        allSeries = (allSeries + series).distinctBy { it.seriesId }
+    }
+
+    private fun loadCachedProgramSearchIndex() {
+        val channelById = allChannels.associateBy { it.id.toInt() }
+        if (channelById.isEmpty()) return
+        lifecycleScope.launch {
+            val programs = withContext(Dispatchers.IO) {
+                db.epgCacheDao().getAll().flatMap { entry ->
+                    val channel = channelById[entry.streamId] ?: return@flatMap emptyList()
+                    runCatching {
+                        gson.fromJson(entry.listingsJson, Array<XtreamEpgListing>::class.java)
+                            ?.asSequence()
+                            .orEmpty()
+                            .map { listing ->
+                                ProgramSearchResult(
+                                    channel = channel,
+                                    title = DataUtils.decodeBase64(listing.title).ifBlank { "No Information" }
+                                )
+                            }
+                            .toList()
+                    }.getOrDefault(emptyList())
+                }
+            }
+            allPrograms = programs.distinctBy { "${it.channel.id}:${it.title}" }
+            rerunVisibleSearch()
+        }
     }
 
     private fun scheduleSearch(query: String) {
         searchRunnable?.let { searchHandler.removeCallbacks(it) }
         searchRunnable = Runnable { performSearch(query, saveQuery = false) }
-        searchHandler.postDelayed(searchRunnable!!, 220L)
+        searchHandler.postDelayed(searchRunnable!!, 350L)
+    }
+
+    private fun rerunVisibleSearch() {
+        val query = etSearch.text?.toString().orEmpty()
+        if (query.trim().length >= 2 && query == lastSearchQuery) {
+            performSearch(query, saveQuery = false)
+        }
     }
 
     private fun submitSearchFromKeyboard() {
@@ -190,9 +282,11 @@ class SearchActivity : AppCompatActivity() {
         val normalized = query.trim()
         if (normalized.length < 2) {
             hasActiveSearch = false
+            lastSearchQuery = ""
             searchAdapter.setRecentQueries(recentQueries)
             return
         }
+        lastSearchQuery = query
 
         val filteredChannels = allChannels.asSequence()
             .filter { it.name.contains(normalized, ignoreCase = true) }
@@ -206,8 +300,15 @@ class SearchActivity : AppCompatActivity() {
             .filter { it.name.contains(normalized, ignoreCase = true) }
             .take(120)
             .toList()
+        val filteredPrograms = allPrograms.asSequence()
+            .filter {
+                it.title.contains(normalized, ignoreCase = true) ||
+                    it.channel.name.contains(normalized, ignoreCase = true)
+            }
+            .take(120)
+            .toList()
 
-        searchAdapter.setResults(filteredChannels, filteredMovies, filteredSeries)
+        searchAdapter.setResults(filteredChannels, filteredMovies, filteredSeries, filteredPrograms)
         hasActiveSearch = true
         if (saveQuery) saveRecentQuery(normalized)
     }
@@ -217,6 +318,9 @@ class SearchActivity : AppCompatActivity() {
         when {
             currentQuery.isNotBlank() || hasActiveSearch -> {
                 searchRunnable?.let { searchHandler.removeCallbacks(it) }
+                if (currentQuery.isNotBlank()) {
+                    saveRecentQuery(currentQuery)
+                }
                 etSearch.setText("")
                 hasActiveSearch = false
                 searchAdapter.setRecentQueries(recentQueries)
@@ -245,6 +349,9 @@ class SearchActivity : AppCompatActivity() {
         next.addAll(recentQueries.filterNot { it.equals(query, ignoreCase = true) })
         recentQueries = next.take(MAX_RECENT_SEARCHES).toMutableList()
         prefs.edit().putString(KEY_RECENT_SEARCHES, recentQueries.joinToString("|")).apply()
+        if (!hasActiveSearch) {
+            searchAdapter.setRecentQueries(recentQueries)
+        }
     }
 
     private fun deleteRecentQuery(query: String) {
@@ -541,6 +648,7 @@ class SearchActivity : AppCompatActivity() {
         private val onClearRecent: () -> Unit,
         private val onChannelClick: (Channel) -> Unit,
         private val onChannelLongClick: (Channel) -> Unit,
+        private val onProgramClick: (ProgramSearchResult) -> Unit,
         private val onMovieClick: (XtreamVodStream) -> Unit,
         private val onMovieLongClick: (XtreamVodStream) -> Unit,
         private val onSeriesClick: (XtreamSeries) -> Unit,
@@ -554,6 +662,7 @@ class SearchActivity : AppCompatActivity() {
             const val TYPE_SERIES = 3
             const val TYPE_RECENT_QUERY = 4
             const val TYPE_RECENT_CLEAR = 5
+            const val TYPE_PROGRAM = 6
         }
 
         private var items: List<Any> = emptyList()
@@ -572,11 +681,20 @@ class SearchActivity : AppCompatActivity() {
             notifyDataSetChanged()
         }
 
-        fun setResults(channels: List<Channel>, movies: List<XtreamVodStream>, series: List<XtreamSeries>) {
+        fun setResults(
+            channels: List<Channel>,
+            movies: List<XtreamVodStream>,
+            series: List<XtreamSeries>,
+            programs: List<ProgramSearchResult>
+        ) {
             val newList = mutableListOf<Any>()
             if (channels.isNotEmpty()) {
                 newList.add("Live Channels")
                 newList.addAll(channels)
+            }
+            if (programs.isNotEmpty()) {
+                newList.add("Programs")
+                newList.addAll(programs)
             }
             if (movies.isNotEmpty()) {
                 newList.add("Movies")
@@ -598,6 +716,7 @@ class SearchActivity : AppCompatActivity() {
                 is XtreamSeries -> TYPE_SERIES
                 is RecentSearchQuery -> TYPE_RECENT_QUERY
                 is ClearRecentSearches -> TYPE_RECENT_CLEAR
+                is ProgramSearchResult -> TYPE_PROGRAM
                 else -> -1
             }
         }
@@ -608,6 +727,7 @@ class SearchActivity : AppCompatActivity() {
                 TYPE_HEADER -> HeaderVH(inflater.inflate(android.R.layout.simple_list_item_1, parent, false))
                 TYPE_RECENT_CLEAR -> RecentVH(inflater.inflate(android.R.layout.simple_list_item_1, parent, false))
                 TYPE_RECENT_QUERY -> RecentVH(inflater.inflate(android.R.layout.simple_list_item_1, parent, false))
+                TYPE_PROGRAM -> ItemVH(inflater.inflate(R.layout.item_channel_epg, parent, false))
                 TYPE_CHANNEL -> ItemVH(inflater.inflate(R.layout.item_channel_epg, parent, false))
                 else -> ItemVH(inflater.inflate(R.layout.item_poster, parent, false))
             }
@@ -657,6 +777,15 @@ class SearchActivity : AppCompatActivity() {
                             holder.itemView.setOnClickListener { onChannelClick(item) }
                             holder.itemView.setOnLongClickListener {
                                 onChannelLongClick(item)
+                                true
+                            }
+                        }
+                        is ProgramSearchResult -> {
+                            tvName.text = "${item.title}  -  ${ChannelNameFormatter.format(holder.itemView.context, item.channel.name)}"
+                            Glide.with(holder.itemView).load(item.channel.logoUrl).into(ivLogo)
+                            holder.itemView.setOnClickListener { onProgramClick(item) }
+                            holder.itemView.setOnLongClickListener {
+                                onProgramClick(item)
                                 true
                             }
                         }

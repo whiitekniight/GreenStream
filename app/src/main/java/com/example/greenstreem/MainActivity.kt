@@ -123,6 +123,7 @@ class MainActivity : FragmentActivity() {
     private lateinit var pbMovieControlsProgress: ProgressBar
     private lateinit var btnMoviePlayPause: TextView
     private lateinit var timeRulerContainer: LinearLayout
+    private lateinit var tvGuideClock: TextView
     private var topInfoDefaultHeightPx = 0
     private var categoryDefaultWidthPx = 0
     private var libraryGridRestTopPx = 0
@@ -233,7 +234,7 @@ class MainActivity : FragmentActivity() {
     private var epgActiveFetchCount = 0
     private val maxConcurrentEpgFetches = 6
     private val xmlOnlyEpgWindowRadius = 6
-    private val epgDiskCacheTtlMs = 24L * 60L * 60L * 1000L
+    private val epgDiskCacheTtlMs = 7L * 24L * 60L * 60L * 1000L
     private val gson by lazy { Gson() }
     private val liveStreamsPrefetchInFlight = mutableSetOf<String>()
     private val doubleBackWindowMs = 500L
@@ -412,7 +413,7 @@ class MainActivity : FragmentActivity() {
             ?.resizeMode
             ?: prefs.getInt(KEY_PLAYER_ASPECT_MODE, AspectRatioFrameLayout.RESIZE_MODE_FILL)
         miniInfoTimeoutMs = prefs.getInt(KEY_MINI_INFO_TIMEOUT_SEC, 4).coerceAtLeast(0) * 1000L
-        pendingEpgRefresh = prefs.getBoolean(KEY_EPG_UPDATE_ON_START, true)
+        pendingEpgRefresh = shouldRefreshEpgOnStartup(prefs)
         currentMode = ContentMode.LIVE_TV
         promoteXtreamM3uPrefsIfNeeded(prefs)
         if (!prefs.getBoolean("has_playlist", false)) {
@@ -472,6 +473,7 @@ class MainActivity : FragmentActivity() {
         hsvTimeRuler = findViewById(R.id.hsvTimeRuler) ?: return
         rightPanel = findViewById(R.id.rightPanel) ?: return
         timeRulerContainer = findViewById(R.id.timeRulerContainer) ?: return
+        tvGuideClock = findViewById(R.id.tvGuideClock) ?: return
         nowTimeLine = findViewById(R.id.nowTimeLine) ?: return
         tvProgramTitleLarge = findViewById(R.id.tvProgramTitleLarge) ?: return
         tvProgramDescription = findViewById(R.id.tvProgramDescription) ?: return
@@ -690,7 +692,7 @@ class MainActivity : FragmentActivity() {
             effectiveListing?.title ?: ChannelNameFormatter.format(this, channel.name)
         )
         if (!preserveDescription) {
-            val decodedDescription = DataUtils.decodeBase64(effectiveListing?.description)
+            val decodedDescription = cleanEpgDescription(DataUtils.decodeBase64(effectiveListing?.description))
             if (!decodedDescription.isNullOrBlank() && !decodedDescription.isLoadingLike()) {
                 tvProgramDescription.text = decodedDescription
                 lastLiveProgramDescription = decodedDescription
@@ -724,6 +726,24 @@ class MainActivity : FragmentActivity() {
             tvProgramDuration.text = ""
             pbProgramProgress?.progress = 0
         }
+    }
+
+    private fun cleanEpgDescription(description: String?): String {
+        if (description.isNullOrBlank()) return ""
+        val withoutCreditTail = description
+            .replace(Regex("(?i)\\s*epg\\s*credits?\\s*:\\s*.*$"), "")
+            .replace(Regex("(?i)\\s*credits?\\s*:\\s*epg[-\\w\\s./]*.*$"), "")
+        return withoutCreditTail
+            .lines()
+            .filterNot { line ->
+                val normalized = line.trim().lowercase(Locale.getDefault())
+                normalized.contains("epg credits") ||
+                    normalized.contains("epg-4iptv") ||
+                    normalized.startsWith("credits:") ||
+                    normalized == "credits"
+            }
+            .joinToString("\n")
+            .trim()
     }
 
     private fun applyAppearanceTheme() {
@@ -1546,15 +1566,21 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun updateMovieProgress(position: Long, duration: Long) {
-        tvMovieControlsPosition.text = ""
-        tvMovieProgressStart.text = ""
-        tvMovieProgressEnd.text = ""
+        tvMovieControlsPosition.text = formatPosition(position)
         pbMovieControlsProgress.progress = if (duration > 0L) {
             ((position.toFloat() / duration.toFloat()) * pbMovieControlsProgress.max)
                 .toInt()
                 .coerceIn(0, pbMovieControlsProgress.max)
         } else {
             0
+        }
+        if (duration > 0L) {
+            val remaining = (duration - position).coerceAtLeast(0L)
+            tvMovieProgressStart.text = formatPosition(duration)
+            tvMovieProgressEnd.text = "-${formatPosition(remaining)}"
+        } else {
+            tvMovieProgressStart.text = "--:--"
+            tvMovieProgressEnd.text = "--:--"
         }
     }
 
@@ -1705,13 +1731,38 @@ class MainActivity : FragmentActivity() {
         uiTickRunnable?.let { uiTickHandler.removeCallbacks(it) }
         uiTickRunnable = Runnable {
             renderDynamicTimeRuler()
+            updateGuideClock()
             updateNowTimeLine()
             refreshLiveGuideForClockTick()
             uiTickHandler.postDelayed(uiTickRunnable!!, 10_000L)
         }
+        updateGuideClock()
         updateNowTimeLine()
         refreshLiveGuideForClockTick(force = true)
         uiTickHandler.postDelayed(uiTickRunnable!!, 10_000L)
+    }
+
+    private fun updateGuideClock() {
+        if (!::tvGuideClock.isInitialized) return
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        val shouldShow = currentMode == ContentMode.LIVE_TV &&
+            (currentState == UiState.EPG_GRID || currentState == UiState.CATEGORIES) &&
+            prefs.getBoolean(KEY_SHOW_CLOCK, true)
+        if (!shouldShow) {
+            tvGuideClock.visibility = View.GONE
+            return
+        }
+        val use24Hour = prefs.getInt(KEY_TIME_FORMAT, 0) == 1
+        val showDate = prefs.getBoolean(KEY_SHOW_DATE_CLOCK, false)
+        val pattern = when {
+            showDate && use24Hour -> "EEE, MMM d, HH:mm"
+            showDate -> "EEE, MMM d, h:mm a"
+            use24Hour -> "HH:mm"
+            else -> "h:mm a"
+        }
+        tvGuideClock.text = SimpleDateFormat(pattern, Locale.getDefault()).format(Date())
+        tvGuideClock.bringToFront()
+        tvGuideClock.visibility = View.VISIBLE
     }
 
     private fun refreshLiveGuideForClockTick(force: Boolean = false) {
@@ -1802,15 +1853,22 @@ class MainActivity : FragmentActivity() {
     private fun renderDynamicTimeRuler() {
         timeRulerContainer.removeAllViews()
         val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-            val minute = get(Calendar.MINUTE)
-            set(Calendar.MINUTE, if (minute < 30) 0 else 30)
+        val startMs = currentGuideTimelineStartMs()
+        val halfHourWidthPx = epgPxPerMinute * 30
+        val gridStartPx = dp(220)
+        timeRulerContainer.setPadding(
+            (gridStartPx - (halfHourWidthPx / 2)).coerceAtLeast(0),
+            0,
+            0,
+            0
+        )
+        if (::epgAdapter.isInitialized) {
+            epgAdapter.setTimelineStartTimestamp(startMs / 1000L)
         }
+        val cal = Calendar.getInstance().apply { timeInMillis = startMs }
         repeat(8) {
             val tv = TextView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(150, ViewGroup.LayoutParams.WRAP_CONTENT)
+                layoutParams = LinearLayout.LayoutParams(halfHourWidthPx, ViewGroup.LayoutParams.WRAP_CONTENT)
                 text = sdf.format(cal.time)
                 setTextColor(resources.getColor(R.color.tivimate_text_primary, theme))
                 gravity = android.view.Gravity.CENTER
@@ -1820,6 +1878,7 @@ class MainActivity : FragmentActivity() {
             cal.add(Calendar.MINUTE, 30)
         }
         updateNowTimeLine()
+        updateGuideClock()
     }
 
     private fun updateNowTimeLine() {
@@ -1828,7 +1887,8 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun shouldShowNowTimeLine(): Boolean {
-        return false
+        return currentMode == ContentMode.LIVE_TV &&
+            (currentState == UiState.EPG_GRID || currentState == UiState.CATEGORIES)
     }
 
     private fun updateNowTimeLinePosition(scrollX: Int) {
@@ -1838,15 +1898,8 @@ class MainActivity : FragmentActivity() {
             return
         }
         val nowMs = System.currentTimeMillis()
-        val cal = Calendar.getInstance().apply { timeInMillis = nowMs }
-        val minutesFromHeaderStart = (cal.get(Calendar.MINUTE) % 30) +
-            (cal.get(Calendar.SECOND) / 60f) +
-            (cal.get(Calendar.MILLISECOND) / 60000f)
-        val leftInsetPx = if (::timeRulerContainer.isInitialized) {
-            timeRulerContainer.paddingStart
-        } else {
-            (220 * resources.displayMetrics.density).toInt()
-        }
+        val minutesFromHeaderStart = ((nowMs - currentGuideTimelineStartMs()) / 60000f).coerceAtLeast(0f)
+        val leftInsetPx = dp(220)
         val x = leftInsetPx + (minutesFromHeaderStart * epgPxPerMinute) - scrollX
         nowTimeLine.translationX = x
         val panelWidth = if (::rightPanel.isInitialized) rightPanel.width else 0
@@ -1964,7 +2017,7 @@ class MainActivity : FragmentActivity() {
                 5
             }
         }
-        pbProgramProgress?.visibility = if (libraryMode) View.GONE else View.VISIBLE
+        pbProgramProgress?.visibility = View.GONE
         topInfo.layoutParams = (topInfo.layoutParams as ConstraintLayout.LayoutParams).apply {
             height = topHeight
             marginStart = if (libraryMode && currentState == UiState.CATEGORIES) categoryWidth else 0
@@ -2207,6 +2260,14 @@ class MainActivity : FragmentActivity() {
             currentChannel != null &&
                 (currentLiveChannels.isEmpty() || currentChannel?.name == "Resuming...")
         return pendingEpgRefresh || needsPlayingChannelHydrated
+    }
+
+    private fun currentGuideTimelineStartMs(): Long {
+        return Calendar.getInstance().apply {
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            set(Calendar.MINUTE, 0)
+        }.timeInMillis
     }
 
     private fun liveCategoryForStartupEpg(rows: List<XtreamCategory>): XtreamCategory? {
@@ -2777,8 +2838,8 @@ class MainActivity : FragmentActivity() {
             // Paint cached EPG immediately so rows fill instantly while network refresh runs.
             sortedChannels.forEach { ch ->
                 val cached = epgCacheByStreamId[ch.id.toInt()]
-                if (!cached.isNullOrEmpty()) {
-                    setEpgDataBuffered(ch.id.toInt(), cached)
+                if (cached.hasCurrentGuideWindowListings()) {
+                    setEpgDataBuffered(ch.id.toInt(), cached.orEmpty())
                 }
             }
             val playingIdx = sortedChannels.indexOfFirst { it.id == currentChannel?.id }
@@ -2827,14 +2888,55 @@ class MainActivity : FragmentActivity() {
 
     private fun maybeRunPendingEpgRefresh() {
         if (!pendingEpgRefresh) return
-        if (currentMode != ContentMode.LIVE_TV || currentLiveChannels.isEmpty()) return
+        if (currentMode != ContentMode.LIVE_TV) return
+        if (currentLiveChannels.isEmpty()) {
+            fetchCategories(autoSelectFirst = false, shouldScrollToActive = true)
+            return
+        }
+        markEpgRefreshInProgress()
         resetEpgFetchQueue(cancelInFlight = true)
         enqueueEpgForChannels(currentLiveChannels, forceRefresh = true)
         pendingEpgRefresh = false
+        processEpgFetchQueue()
+    }
+
+    private fun markEpgRefreshInProgress() {
+        getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_EPG_UPDATE_IN_PROGRESS, true)
+            .putLong(KEY_EPG_UPDATE_STARTED_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun markEpgRefreshFinished() {
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_EPG_UPDATE_IN_PROGRESS, false)) return
+        prefs.edit()
+            .putBoolean(KEY_EPG_UPDATE_IN_PROGRESS, false)
+            .remove(KEY_EPG_UPDATE_STARTED_AT)
+            .putLong(KEY_EPG_LAST_REFRESHED_AT, System.currentTimeMillis())
+            .apply()
         if (pendingEpgRefreshUserRequested) {
             Toast.makeText(this, "EPG updated", Toast.LENGTH_SHORT).show()
             pendingEpgRefreshUserRequested = false
         }
+    }
+
+    private fun shouldRefreshEpgOnStartup(prefs: android.content.SharedPreferences): Boolean {
+        if (!prefs.getBoolean(KEY_EPG_UPDATE_ON_START, true)) return false
+        if (!prefs.getBoolean(KEY_EPG_AUTO_UPDATE, true)) return false
+        val lastRefresh = prefs.getLong(KEY_EPG_LAST_REFRESHED_AT, 0L)
+        if (lastRefresh <= 0L) return true
+        return System.currentTimeMillis() - lastRefresh >= epgAutoUpdateIntervalMs(prefs)
+    }
+
+    private fun epgAutoUpdateIntervalMs(prefs: android.content.SharedPreferences): Long {
+        return when (prefs.getInt(KEY_EPG_UPDATE_INTERVAL, 2).coerceIn(0, 3)) {
+            0 -> 2L
+            1 -> 6L
+            2 -> 12L
+            else -> 24L
+        } * 60L * 60L * 1000L
     }
 
     private fun handleEpgSettingsInvalidation(
@@ -2845,6 +2947,12 @@ class MainActivity : FragmentActivity() {
         val previous = prefs.getString(KEY_EPG_SETTINGS_SIGNATURE, null)
         val clearRequested = prefs.getBoolean(KEY_EPG_CLEAR_REQUESTED, false)
         val settingsChanged = previous != null && previous != signature
+        if (previous == null && !forceRefreshRequested && !clearRequested) {
+            prefs.edit()
+                .putString(KEY_EPG_SETTINGS_SIGNATURE, signature)
+                .apply()
+            return false
+        }
         if (!forceRefreshRequested && !clearRequested && !settingsChanged && previous == signature) return false
 
         prefs.edit()
@@ -2853,26 +2961,30 @@ class MainActivity : FragmentActivity() {
             .apply()
 
         pendingEpgRefresh = true
-        resetEpgFetchQueue(cancelInFlight = true)
+        if (forceRefreshRequested && !clearRequested && !settingsChanged) {
+            maybeRunPendingEpgRefresh()
+            return true
+        }
 
         lifecycleScope.launch {
-            withContext(Dispatchers.IO) {
-                db.epgCacheDao().clearAll()
-                if (clearRequested || settingsChanged) {
+            if (clearRequested) {
+                resetEpgFetchQueue(cancelInFlight = true)
+                withContext(Dispatchers.IO) {
+                    db.epgCacheDao().clearAll()
                     db.epgChannelMappingDao().clearAll()
+                }
+                epgCacheByStreamId.clear()
+                pendingEpgUiUpdates.clear()
+                if (::epgAdapter.isInitialized) {
+                    epgAdapter.clearEpgData()
                 }
             }
             SecondaryEpgProvider.clearCache()
-            epgCacheByStreamId.clear()
-            pendingEpgUiUpdates.clear()
-            if (::epgAdapter.isInitialized) {
-                epgAdapter.clearEpgData()
-            }
             Toast.makeText(
                 this@MainActivity,
                 when {
                     clearRequested -> "EPG cleared"
-                    forceRefreshRequested -> "EPG cache cleared. Reloading guide."
+                    forceRefreshRequested -> "Reloading guide."
                     else -> "EPG settings changed. Reloading guide."
                 },
                 Toast.LENGTH_SHORT
@@ -2932,8 +3044,8 @@ class MainActivity : FragmentActivity() {
         val streamId = channel.id.toInt()
         if (!forceRefresh) {
             val cached = epgCacheByStreamId[streamId]
-            if (!cached.isNullOrEmpty()) {
-                epgAdapter.setEpgData(streamId, cached)
+            if (cached.hasCurrentGuideWindowListings()) {
+                epgAdapter.setEpgData(streamId, cached.orEmpty())
                 return
             }
         }
@@ -2989,6 +3101,10 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun processEpgFetchQueue() {
+        if (epgFetchQueue.isEmpty() && epgActiveFetchCount == 0) {
+            markEpgRefreshFinished()
+            return
+        }
         val concurrencyLimit = if (shouldUseOnlySecondaryEpg()) 2 else maxConcurrentEpgFetches
         while (epgActiveFetchCount < concurrencyLimit && epgFetchQueue.isNotEmpty()) {
             val (channel, forceRefresh) = epgFetchQueue.removeFirst()
@@ -2997,8 +3113,8 @@ class MainActivity : FragmentActivity() {
             if (epgInFlightStreamIds.contains(streamId)) continue
             if (!forceRefresh) {
                 val cached = epgCacheByStreamId[streamId]
-                if (!cached.isNullOrEmpty()) {
-                    setEpgDataBuffered(streamId, cached)
+                if (cached.hasCurrentGuideWindowListings()) {
+                    setEpgDataBuffered(streamId, cached.orEmpty())
                     continue
                 }
             }
@@ -3057,6 +3173,9 @@ class MainActivity : FragmentActivity() {
                     }
                 }
             })
+        }
+        if (epgFetchQueue.isEmpty() && epgActiveFetchCount == 0) {
+            markEpgRefreshFinished()
         }
     }
 
@@ -3131,8 +3250,8 @@ class MainActivity : FragmentActivity() {
             hydrateEpgCacheFromDisk(sortedChannels)
             sortedChannels.forEach { ch ->
                 val cached = epgCacheByStreamId[ch.id.toInt()]
-                if (!cached.isNullOrEmpty()) {
-                    setEpgDataBuffered(ch.id.toInt(), cached)
+                if (cached.hasCurrentGuideWindowListings()) {
+                    setEpgDataBuffered(ch.id.toInt(), cached.orEmpty())
                 }
             }
             val playingIdx = sortedChannels.indexOfFirst { it.id == currentChannel?.id }
@@ -3187,15 +3306,6 @@ class MainActivity : FragmentActivity() {
 
     private fun cacheEpg(streamId: Int, listings: List<XtreamEpgListing>) {
         epgCacheByStreamId[streamId] = listings
-        if (shouldUseOnlySecondaryEpg()) {
-            if (epgCacheByStreamId.size <= maxEpgCacheEntries) return
-            val removeCount = epgCacheByStreamId.size - maxEpgCacheEntries
-            repeat(removeCount.coerceAtLeast(0)) {
-                val firstKey = epgCacheByStreamId.entries.firstOrNull()?.key ?: return
-                epgCacheByStreamId.remove(firstKey)
-            }
-            return
-        }
         val now = System.currentTimeMillis()
         lifecycleScope.launch(Dispatchers.IO) {
             db.epgCacheDao().upsert(
@@ -3217,12 +3327,6 @@ class MainActivity : FragmentActivity() {
     private suspend fun hydrateEpgCacheFromDisk(channels: List<Channel>) {
         clearEpgCacheIfRequested()
         if (channels.isEmpty()) return
-        if (shouldUseOnlySecondaryEpg()) {
-            withContext(Dispatchers.IO) {
-                db.epgCacheDao().clearAll()
-            }
-            return
-        }
         val now = System.currentTimeMillis()
         val cutoff = now - epgDiskCacheTtlMs
         val ids = channels.map { it.id.toInt() }.distinct()
@@ -3232,12 +3336,43 @@ class MainActivity : FragmentActivity() {
                 db.epgCacheDao().getByStreamIds(chunk)
             }
         }
+        val hydratedIds = mutableSetOf<Int>()
         entries.forEach { entry ->
             if (entry.updatedAtMs < cutoff) return@forEach
             val parsed = parseEpgListingsJson(entry.listingsJson)
-            if (parsed.isNotEmpty()) {
+            if (parsed.hasCurrentGuideWindowListings()) {
+                hydratedIds.add(entry.streamId)
                 epgCacheByStreamId[entry.streamId] = parsed
                 setEpgDataBuffered(entry.streamId, parsed)
+            }
+        }
+        hydrateMissingRowsFromSecondaryIndex(channels, hydratedIds)
+    }
+
+    private suspend fun hydrateMissingRowsFromSecondaryIndex(
+        channels: List<Channel>,
+        hydratedIds: Set<Int>
+    ) {
+        if (!ProEntitlement.isProUnlocked(this)) return
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_SECONDARY_EPG_ENABLED, false)) return
+        val secondaryMode = prefs.getInt(KEY_SECONDARY_EPG_MODE, SECONDARY_EPG_MODE_FILL_MISSING)
+            .coerceIn(SECONDARY_EPG_MODE_FILL_MISSING, SECONDARY_EPG_MODE_PROVIDER_ONLY)
+        if (secondaryMode == SECONDARY_EPG_MODE_PROVIDER_ONLY) return
+
+        channels.forEach { channel ->
+            val streamId = channel.id.toInt()
+            if (streamId in hydratedIds || epgCacheByStreamId[streamId].hasCurrentGuideWindowListings()) return@forEach
+            val cachedSecondary = SecondaryEpgProvider.getCachedListingsForChannelCandidates(
+                this,
+                secondaryLookupCandidates(channel)
+            )
+            val secondary = cachedSecondary.ifEmpty {
+                applySecondaryEpgFallback(channel, emptyList())
+            }
+            if (secondary.isNotEmpty()) {
+                cacheEpg(streamId, secondary)
+                setEpgDataBuffered(streamId, secondary)
             }
         }
     }
@@ -3246,6 +3381,16 @@ class MainActivity : FragmentActivity() {
         return runCatching {
             gson.fromJson(raw, Array<XtreamEpgListing>::class.java)?.toList().orEmpty()
         }.getOrDefault(emptyList())
+    }
+
+    private fun List<XtreamEpgListing>?.hasCurrentGuideWindowListings(): Boolean {
+        if (isNullOrEmpty()) return false
+        val now = System.currentTimeMillis() / 1000L
+        val windowStart = now - (30L * 60L)
+        val windowEnd = now + (8L * 60L * 60L)
+        return any { listing ->
+            listing.stopTimestamp > windowStart && listing.startTimestamp < windowEnd
+        }
     }
 
     private fun prefetchAdjacentLiveGroups(centerCategoryId: String) {
@@ -3303,10 +3448,7 @@ class MainActivity : FragmentActivity() {
             if (secondaryMode == SECONDARY_EPG_MODE_SECONDARY_ONLY) return emptyList()
         }
 
-        val candidates = listOfNotNull(
-            channel.epgId?.takeIf { it.isNotBlank() },
-            channel.name.takeIf { it.isNotBlank() }
-        ).distinct()
+        val candidates = secondaryLookupCandidates(channel)
         if (candidates.isEmpty()) {
             return if (secondaryMode == SECONDARY_EPG_MODE_SECONDARY_ONLY) emptyList() else primary
         }
@@ -3320,6 +3462,13 @@ class MainActivity : FragmentActivity() {
                 mergeNoInfoListings(primary, secondary)
             }
         }
+    }
+
+    private fun secondaryLookupCandidates(channel: Channel): List<String> {
+        return listOfNotNull(
+            channel.epgId?.takeIf { it.isNotBlank() },
+            channel.name.takeIf { it.isNotBlank() }
+        ).distinct()
     }
 
     private fun epgProviderKeyForSource(url: String): String =
@@ -3345,14 +3494,18 @@ class MainActivity : FragmentActivity() {
 
     private fun getEpgLimitFromDaysSetting(): Int {
         if (!ProEntitlement.isProUnlocked(this)) return 48
-        val idx = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
-            .getInt(KEY_EPG_DAYS, 2)
-            .coerceIn(0, 2)
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        val idx = if (prefs.contains(KEY_EPG_DAYS)) {
+            prefs.getInt(KEY_EPG_DAYS, 2)
+        } else {
+            prefs.getInt(KEY_EPG_DAYS_LEGACY, 2)
+        }.coerceIn(0, 3)
         // Approximate half-hour blocks per day; request enough entries for selected range.
         return when (idx) {
             0 -> 48
             1 -> 96
-            else -> 144
+            2 -> 144
+            else -> 336
         }
     }
 
@@ -4541,7 +4694,7 @@ class MainActivity : FragmentActivity() {
                 player?.pause()
             }
             mainContentArea.visibility = View.VISIBLE
-            pbProgramProgress?.visibility = if (currentMode == ContentMode.LIVE_TV) View.VISIBLE else View.GONE
+            pbProgramProgress?.visibility = View.GONE
             zapBar.visibility = View.GONE
             hideMovieControls()
         }
@@ -4629,6 +4782,7 @@ class MainActivity : FragmentActivity() {
             }
         }
         updateNowTimeLine()
+        updateGuideClock()
     }
 
     private fun returnToCategoriesOnly() {
@@ -5150,7 +5304,7 @@ class MainActivity : FragmentActivity() {
                 }
                 return@post
             }
-            val timelineX = epgScrollSync.getCurrentX()
+            val timelineX = currentTimeContentX()
             val timelineIndex = findProgramIndexForTimelineX(holder.container, timelineX)
             val focusTarget = holder.container.getChildAt(timelineIndex)
                 ?: holder.container.getChildAt(0)
@@ -5161,10 +5315,16 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private fun currentTimeContentX(): Int {
+        val minutesFromHeaderStart =
+            ((System.currentTimeMillis() - currentGuideTimelineStartMs()) / 60000f).coerceAtLeast(0f)
+        return (minutesFromHeaderStart * epgPxPerMinute).toInt().coerceAtLeast(0)
+    }
+
     private fun findProgramIndexForTimelineX(container: LinearLayout, timelineX: Int): Int {
         val childCount = container.childCount
         if (childCount <= 0) return 0
-        val anchorX = (timelineX + 24).coerceAtLeast(0)
+        val anchorX = timelineX.coerceAtLeast(0)
         for (i in 0 until childCount) {
             val child = container.getChildAt(i) ?: continue
             if (anchorX < child.right) return i
@@ -6538,7 +6698,7 @@ class MainActivity : FragmentActivity() {
             if (currentState == UiState.FULL_SCREEN) {
                 epgOverlay.visibility = View.GONE
                 mainContentArea.visibility = View.VISIBLE
-                pbProgramProgress?.visibility = View.VISIBLE
+                pbProgramProgress?.visibility = View.GONE
             }
         }
         miniInfoHandler.postDelayed(miniInfoRunnable!!, miniInfoTimeoutMs)
@@ -6594,9 +6754,18 @@ class MainActivity : FragmentActivity() {
         private const val UI_MODE_AUTO = "auto"
         private const val UI_MODE_TV = "tv"
         private const val UI_MODE_MOBILE = "mobile"
-        private const val KEY_EPG_DAYS = "epg_days"
+        private const val KEY_TIME_FORMAT = "general_time_format"
+        private const val KEY_SHOW_CLOCK = "general_show_clock"
+        private const val KEY_SHOW_DATE_CLOCK = "general_show_date_clock"
+        private const val KEY_EPG_DAYS = "epg_past_days"
+        private const val KEY_EPG_DAYS_LEGACY = "epg_days"
+        private const val KEY_EPG_AUTO_UPDATE = "epg_auto_update"
+        private const val KEY_EPG_UPDATE_INTERVAL = "epg_update_interval"
         private const val KEY_EPG_UPDATE_ON_START = "epg_update_on_start"
         private const val KEY_EPG_FORCE_REFRESH_NOW = "epg_force_refresh_now"
+        private const val KEY_EPG_UPDATE_IN_PROGRESS = "epg_update_in_progress"
+        private const val KEY_EPG_UPDATE_STARTED_AT = "epg_update_started_at"
+        private const val KEY_EPG_LAST_REFRESHED_AT = "epg_last_refreshed_at"
         private const val KEY_EPG_CLEAR_REQUESTED = "epg_clear_requested"
         private const val KEY_EPG_SETTINGS_SIGNATURE = "epg_settings_signature"
         private const val KEY_GROUPS_CHANGED = "groups_changed"

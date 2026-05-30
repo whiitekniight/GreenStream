@@ -12,6 +12,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
+import java.util.Calendar
+import kotlin.math.max
+import kotlin.math.min
 
 class EpgRowAdapter(
     private val pxPerMinute: Int,
@@ -28,7 +31,14 @@ class EpgRowAdapter(
     private var currentPlayingChannelId: Long? = null
     private var visibilityEditMode = false
     private var hiddenChannelIds: Set<Long> = emptySet()
+    private var timelineStartSeconds: Long = currentTimelineStartTimestamp()
     var suppressPlayingIndicatorUpdatesUntilMs: Long = 0L
+
+    private data class DisplayBlock(
+        val title: String,
+        val durationSec: Long,
+        val listing: XtreamEpgListing?
+    )
 
     var focusedRowPosition: Int = RecyclerView.NO_POSITION
         set(value) {
@@ -101,6 +111,12 @@ class EpgRowAdapter(
     fun refreshGuideClock() {
         if (channels.isEmpty()) return
         notifyItemRangeChanged(0, channels.size, "EPG_CLOCK")
+    }
+
+    fun setTimelineStartTimestamp(startSeconds: Long) {
+        if (timelineStartSeconds == startSeconds) return
+        timelineStartSeconds = startSeconds
+        if (channels.isNotEmpty()) notifyItemRangeChanged(0, channels.size, "EPG_CLOCK")
     }
 
     fun setChannelVisibilityEditMode(enabled: Boolean) {
@@ -241,9 +257,9 @@ class EpgRowAdapter(
         if (!showLogos) return
 
         val sizeDp = when (prefs.getInt("appearance_logo_size", 1).coerceIn(0, 2)) {
-            0 -> 20
-            2 -> 32
-            else -> 26
+            0 -> 26
+            2 -> 42
+            else -> 34
         }
         val sizePx = holder.itemView.context.dp(sizeDp)
         holder.ivLogo.layoutParams = holder.ivLogo.layoutParams.apply {
@@ -276,6 +292,7 @@ class EpgRowAdapter(
         holder.tvName.isSingleLine = true
         holder.tvName.isSelected = focused
         holder.itemView.isSelected = focused
+        holder.channelInfo.background = null
 
         val pad = if (focused) holder.itemView.context.dp(2) else 0
         holder.ivLogo.setPadding(pad, pad, pad, pad)
@@ -305,25 +322,61 @@ class EpgRowAdapter(
         holder.container.removeAllViews()
         val inflater = LayoutInflater.from(holder.itemView.context)
 
-        val displayPrograms = programsForDisplay(programs)
+        val displayBlocks = blocksForDisplay(programs)
 
-        if (displayPrograms.isEmpty()) {
-            addProgramBlock(inflater, holder.container, "No Information", 180, channel, null)
+        if (displayBlocks.isEmpty()) {
+            addProgramBlock(inflater, holder.container, "No Information", guideWindowMinutes * 60L, channel, null)
         } else {
-            displayPrograms.forEach { prog ->
-                val durationMin = ((prog.stopTimestamp - prog.startTimestamp) / 60).toInt()
-                addProgramBlock(inflater, holder.container, DataUtils.decodeBase64(prog.title), durationMin, channel, prog)
+            displayBlocks.forEach { block ->
+                addProgramBlock(inflater, holder.container, block.title, block.durationSec, channel, block.listing)
             }
         }
     }
 
-    private fun programsForDisplay(programs: List<XtreamEpgListing>): List<XtreamEpgListing> {
+    private fun blocksForDisplay(programs: List<XtreamEpgListing>): List<DisplayBlock> {
         if (programs.isEmpty()) return emptyList()
-        val now = System.currentTimeMillis() / 1000L
-        val startWindow = now - 30 * 60L
-        val endWindow = now + 8 * 60 * 60L
-        val visible = programs.filter { it.stopTimestamp > startWindow && it.startTimestamp < endWindow }
-        return (visible.ifEmpty { programs.take(12) }).take(24)
+        val windowStart = timelineStartSeconds
+        val windowEnd = windowStart + (guideWindowMinutes * 60L)
+        var cursor = windowStart
+        val blocks = mutableListOf<DisplayBlock>()
+
+        programs
+            .asSequence()
+            .filter { it.stopTimestamp > windowStart && it.startTimestamp < windowEnd }
+            .sortedBy { it.startTimestamp }
+            .forEach { prog ->
+                val clippedStart = max(prog.startTimestamp, windowStart)
+                val clippedEnd = min(prog.stopTimestamp, windowEnd)
+                if (clippedEnd <= clippedStart) return@forEach
+
+                if (clippedStart > cursor) {
+                    blocks.add(DisplayBlock("No Information", clippedStart - cursor, null))
+                }
+                val displayStart = max(clippedStart, cursor)
+                if (clippedEnd <= displayStart) return@forEach
+                blocks.add(
+                    DisplayBlock(
+                        DataUtils.decodeBase64(prog.title).ifBlank { "No Information" },
+                        clippedEnd - displayStart,
+                        prog
+                    )
+                )
+                cursor = clippedEnd
+            }
+
+        if (blocks.isNotEmpty() && cursor < windowEnd) {
+            blocks.add(DisplayBlock("No Information", windowEnd - cursor, null))
+        }
+        return blocks
+    }
+
+    private fun currentTimelineStartTimestamp(): Long {
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            set(Calendar.MINUTE, 0)
+        }
+        return cal.timeInMillis / 1000L
     }
 
     private fun isDescendantOf(parent: View, child: View): Boolean {
@@ -335,13 +388,15 @@ class EpgRowAdapter(
         return false
     }
 
-    private fun addProgramBlock(inflater: LayoutInflater, container: LinearLayout, title: String, durationMin: Int, channel: Channel, listing: XtreamEpgListing?) {
+    private fun addProgramBlock(inflater: LayoutInflater, container: LinearLayout, title: String, durationSec: Long, channel: Channel, listing: XtreamEpgListing?) {
         val view = inflater.inflate(R.layout.item_epg_program, container, false)
-        view.background = AppearanceTheme.epgProgramBackground(view.context)
+        applyProgramFocusStyle(view, false)
         val tvTitle = view.findViewById<TextView>(R.id.tvProgramTitle)
         tvTitle.text = title
+        tvTitle.setTextColor(Color.WHITE)
+        tvTitle.setTypeface(null, android.graphics.Typeface.NORMAL)
 
-        val width = (durationMin * pxPerMinute).coerceAtLeast(200)
+        val width = ((durationSec / 60f) * pxPerMinute).toInt().coerceAtLeast(1)
         view.layoutParams = LinearLayout.LayoutParams(width, ViewGroup.LayoutParams.MATCH_PARENT)
         view.isLongClickable = true
         
@@ -356,6 +411,7 @@ class EpgRowAdapter(
         }
 
         view.setOnFocusChangeListener { _, hasFocus ->
+            applyProgramFocusStyle(view, hasFocus)
             if (hasFocus) {
                 view.animate().scaleX(1.0f).scaleY(1.04f).setDuration(120).start()
                 view.elevation = 6f
@@ -374,6 +430,20 @@ class EpgRowAdapter(
             }
         }
         container.addView(view)
+    }
+
+    private fun applyProgramFocusStyle(view: View, focused: Boolean) {
+        if (!focused) {
+            view.background = AppearanceTheme.epgProgramBackground(view.context)
+            return
+        }
+        val accent = AppearanceTheme.accentColor(view.context)
+        view.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = view.context.dp(4).toFloat()
+            setColor(Color.argb(115, Color.red(accent), Color.green(accent), Color.blue(accent)))
+            setStroke(view.context.dp(1), Color.argb(210, Color.red(accent), Color.green(accent), Color.blue(accent)))
+        }
     }
 
     override fun onViewRecycled(holder: VH) {
@@ -397,4 +467,8 @@ class EpgRowAdapter(
 
     private fun android.content.Context.dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
+
+    companion object {
+        private const val guideWindowMinutes = 240
+    }
 }
