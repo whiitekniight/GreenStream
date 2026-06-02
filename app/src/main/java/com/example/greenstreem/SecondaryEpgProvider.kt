@@ -155,6 +155,8 @@ object SecondaryEpgProvider {
     ): List<XtreamEpgListing> = withContext(Dispatchers.IO) {
         val url = sourceUrl.trim()
         if (url.isBlank() || keys.isEmpty()) return@withContext emptyList()
+        val stored = getStoredListingsForKeys(context, keys)
+        if (stored.isNotEmpty()) return@withContext stored
         ensureIndexed(context, url)
         getStoredListingsForKeys(context, keys)
     }
@@ -213,24 +215,30 @@ object SecondaryEpgProvider {
 
     private suspend fun indexXmltv(context: Context, url: String) = withContext(Dispatchers.IO) {
         val dao = AppDatabase.getDatabase(context).xmltvDao()
-        dao.clearPrograms()
-        dao.clearAliases()
         val aliases = linkedMapOf<String, XmltvAliasEntity>()
         val ambiguousAliases = mutableSetOf<String>()
         val channelDisplayNames = linkedMapOf<String, String>()
         val programs = mutableListOf<XmltvProgramEntity>()
+        val stagedPrograms = mutableListOf<XmltvProgramEntity>()
         val result = runCatching {
             openStream(url).use { input ->
                 val parser = Xml.newPullParser()
                 parser.setInput(input, null)
                 parseXmltvToIndex(parser, channelDisplayNames, aliases, ambiguousAliases, programs) { batch ->
-                    dao.insertPrograms(batch)
+                    stagedPrograms.addAll(batch)
                 }
             }
-            if (aliases.isNotEmpty()) dao.insertAliases(aliases.values.toList())
             if (programs.isNotEmpty()) {
-                dao.insertPrograms(programs.toList())
+                stagedPrograms.addAll(programs)
                 programs.clear()
+            }
+            if (stagedPrograms.isNotEmpty()) {
+                dao.clearPrograms()
+                dao.clearAliases()
+                if (aliases.isNotEmpty()) dao.insertAliases(aliases.values.toList())
+                stagedPrograms.chunked(1000).forEach { batch ->
+                    dao.insertPrograms(batch)
+                }
             }
         }
         result.onFailure { error ->

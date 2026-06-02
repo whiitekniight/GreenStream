@@ -1,7 +1,7 @@
 {
-  "versionCode": 46,
-  "versionName": "1.9.10",
-  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Improves live TV guide timing, EPG refresh reliability, search history, poster browsing, and clock display."
+  "versionCode": 47,
+  "versionName": "1.9.11",
+  "apkUrl": "https://greenstreem.pages.dev/downloads/greenstreem-customer.apk",
+  "notes": "Keeps saved EPG data available while guide refreshes, so the guide does not go blank if the provider is slow."
 }
 
