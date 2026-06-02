@@ -1,7 +1,7 @@
 {
-  "versionCode": 47,
-  "versionName": "1.9.11",
+  "versionCode": 48,
+  "versionName": "1.9.12",
   "apkUrl": "https://greenstreem.pages.dev/downloads/greenstreem-customer.apk",
-  "notes": "Keeps saved EPG data available while guide refreshes, so the guide does not go blank if the provider is slow."
+  "notes": "Improves update prompts and keeps saved EPG data available while guide refreshes."
 }
 

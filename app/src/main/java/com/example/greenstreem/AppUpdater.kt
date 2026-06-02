@@ -28,7 +28,7 @@ data class AppUpdateInfo(
 object AppUpdater {
     private const val PREFS = "iptv_prefs"
     private const val KEY_UPDATER_AUTO_CHECK = "updater_auto_check"
-    private const val KEY_LAST_SEEN_UPDATE_VERSION_CODE = "last_seen_update_version_code"
+    private const val KEY_DISMISSED_UPDATE_VERSION_CODE = "last_seen_update_version_code"
     private const val DEFAULT_UPDATE_FEED_URL =
         "https://raw.githubusercontent.com/whiitekniight/GreenStreem/main/updates/update.json"
 
@@ -60,29 +60,31 @@ object AppUpdater {
         if (info.versionCode <= currentCode) {
             activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
-                .remove(KEY_LAST_SEEN_UPDATE_VERSION_CODE)
+                .remove(KEY_DISMISSED_UPDATE_VERSION_CODE)
                 .apply()
             if (manual) Toast.makeText(activity, "App is up to date", Toast.LENGTH_SHORT).show()
             return
         }
 
         val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val lastSeenVersion = prefs.getInt(KEY_LAST_SEEN_UPDATE_VERSION_CODE, -1)
-        if (!manual && lastSeenVersion == info.versionCode) {
+        val dismissedVersion = prefs.getInt(KEY_DISMISSED_UPDATE_VERSION_CODE, -1)
+        if (!manual && dismissedVersion == info.versionCode) {
             return
         }
 
         withContext(Dispatchers.Main) {
-            prefs.edit().putInt(KEY_LAST_SEEN_UPDATE_VERSION_CODE, info.versionCode).apply()
             android.app.AlertDialog.Builder(activity)
                 .setTitle("Update available")
                 .setMessage("Version ${info.versionName} is available.\n\n${info.notes}")
                 .setPositiveButton("Update") { _, _ ->
+                    prefs.edit().remove(KEY_DISMISSED_UPDATE_VERSION_CODE).apply()
                     activity.lifecycleScope.launch {
                         downloadAndInstall(activity, info)
                     }
                 }
-                .setNegativeButton("Later", null)
+                .setNegativeButton("Later") { _, _ ->
+                    prefs.edit().putInt(KEY_DISMISSED_UPDATE_VERSION_CODE, info.versionCode).apply()
+                }
                 .show()
         }
     }
