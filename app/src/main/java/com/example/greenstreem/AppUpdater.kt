@@ -2,6 +2,8 @@ package com.example.greenstreem
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -123,6 +125,7 @@ object AppUpdater {
                 if (!out.exists() || out.length() < 100_000L || !isLikelyApk(out)) {
                     error("Downloaded file is not a valid APK")
                 }
+                validateDownloadedApk(activity, out, info)
                 out
             }.getOrNull()
         } ?: run {
@@ -144,16 +147,17 @@ object AppUpdater {
             "${activity.packageName}.fileprovider",
             apkFile
         )
-        val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-            data = uri
+        val installIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
         }
-        val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
+        val fallbackIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+            data = uri
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
         }
         runCatching {
             val pm = activity.packageManager
@@ -182,5 +186,34 @@ object AppUpdater {
     private fun canInstallPackages(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
         return runCatching { context.packageManager.canRequestPackageInstalls() }.getOrDefault(false)
+    }
+
+    private fun validateDownloadedApk(context: Context, apkFile: File, info: AppUpdateInfo) {
+        val pkg = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.packageManager.getPackageArchiveInfo(
+                apkFile.absolutePath,
+                PackageManager.PackageInfoFlags.of(0)
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)
+        } ?: error("Downloaded APK could not be read")
+
+        if (pkg.packageName != context.packageName) {
+            error("Downloaded APK is ${pkg.packageName}, expected ${context.packageName}")
+        }
+        if (packageVersionCode(pkg) <= appVersionCode(context)) {
+            error("Downloaded APK is not newer")
+        }
+        if (info.versionCode > 0 && packageVersionCode(pkg) != info.versionCode) {
+            error("Downloaded APK version does not match update feed")
+        }
+    }
+
+    private fun packageVersionCode(pkg: PackageInfo): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) pkg.longVersionCode.toInt() else {
+            @Suppress("DEPRECATION")
+            pkg.versionCode
+        }
     }
 }
