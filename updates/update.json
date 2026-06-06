@@ -1,7 +1,7 @@
 {
   "versionCode": 49,
   "versionName": "1.9.13",
-  "apkUrl": "https://greenstreem.pages.dev/downloads/greenstreem-customer.apk",
+  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
   "notes": "Improves branded app updates so the installer uses the correct APK and prevents wrong-package installs."
 }
 
