@@ -122,6 +122,11 @@ class MainActivity : FragmentActivity() {
     private lateinit var tvMovieProgressEnd: TextView
     private lateinit var pbMovieControlsProgress: ProgressBar
     private lateinit var btnMoviePlayPause: TextView
+    private lateinit var nextEpisodePrompt: View
+    private lateinit var tvNextEpisodeTitle: TextView
+    private lateinit var tvNextEpisodeCountdown: TextView
+    private lateinit var btnNextEpisodeStart: TextView
+    private lateinit var btnNextEpisodeAuto: TextView
     private lateinit var timeRulerContainer: LinearLayout
     private lateinit var tvGuideClock: TextView
     private var topInfoDefaultHeightPx = 0
@@ -274,6 +279,10 @@ class MainActivity : FragmentActivity() {
     private var lastVodAudioWarningKey: String? = null
     private var currentVodUrl: String? = null
     private var currentVodTitle: String? = null
+    private var seriesEpisodeUrls: List<String> = emptyList()
+    private var seriesEpisodeTitles: List<String> = emptyList()
+    private var seriesEpisodeResumeKeys: List<String> = emptyList()
+    private var seriesEpisodeIndex = -1
     private var lastUnsupportedVodAudioSummary: String = ""
     private var pendingEpgRefresh = false
     private var pendingEpgRefreshUserRequested = false
@@ -466,6 +475,11 @@ class MainActivity : FragmentActivity() {
         tvMovieProgressEnd = findViewById(R.id.tvMovieProgressEnd) ?: return
         pbMovieControlsProgress = findViewById(R.id.pbMovieControlsProgress) ?: return
         btnMoviePlayPause = findViewById(R.id.btnMoviePlayPause) ?: return
+        nextEpisodePrompt = findViewById(R.id.nextEpisodePrompt) ?: return
+        tvNextEpisodeTitle = findViewById(R.id.tvNextEpisodeTitle) ?: return
+        tvNextEpisodeCountdown = findViewById(R.id.tvNextEpisodeCountdown) ?: return
+        btnNextEpisodeStart = findViewById(R.id.btnNextEpisodeStart) ?: return
+        btnNextEpisodeAuto = findViewById(R.id.btnNextEpisodeAuto) ?: return
         navRail = findViewById(R.id.navRail) ?: return
         rvCategories = findViewById(R.id.rvCategories) ?: return
         rvRecentChannels = findViewById(R.id.rvRecentChannels) ?: return
@@ -561,6 +575,7 @@ class MainActivity : FragmentActivity() {
         startLivePlaybackWatchdog()
         PlayBillingManager.start(this)
         setupMovieControls()
+        setupNextEpisodePrompt()
         setupDynamicTimeRuler()
         setupNavRail()
         setupBackNavigationDispatcher()
@@ -1390,7 +1405,7 @@ class MainActivity : FragmentActivity() {
                         if (currentVodResumeKey == null && currentChannel != null && currentLivePlaybackUrl != null) {
                             recoverLivePlayback("ended")
                         } else {
-                            clearVodResumeProgress()
+                            handleVodEnded()
                         }
                     }
                     if (movieControlsBar.visibility == View.VISIBLE) refreshMovieControls()
@@ -1505,6 +1520,99 @@ class MainActivity : FragmentActivity() {
             hideMovieControls()
             launchInternalActivity(Intent(this, PlaybackSettingsActivity::class.java))
         }
+    }
+
+    private fun setupNextEpisodePrompt() {
+        btnNextEpisodeStart.setOnClickListener {
+            playNextSeriesEpisode()
+        }
+        btnNextEpisodeAuto.setOnClickListener {
+            val next = !isAutoNextEpisodeEnabled()
+            getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_AUTO_NEXT_EPISODE, next)
+                .apply()
+            updateNextEpisodePrompt()
+        }
+    }
+
+    private fun isAutoNextEpisodeEnabled(): Boolean {
+        return getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+            .getBoolean(KEY_AUTO_NEXT_EPISODE, true)
+    }
+
+    private fun hasNextSeriesEpisode(): Boolean {
+        return seriesEpisodeIndex >= 0 && seriesEpisodeIndex + 1 < seriesEpisodeUrls.size
+    }
+
+    private fun updateNextEpisodePrompt() {
+        val nextTitle = seriesEpisodeTitles.getOrNull(seriesEpisodeIndex + 1)
+        tvNextEpisodeTitle.text = "Next: ${nextTitle ?: "Next episode"}"
+        val currentPlayer = player
+        val duration = currentPlayer?.duration?.takeIf { it > 0L && it != C.TIME_UNSET } ?: 0L
+        val remaining = if (duration > 0L) (duration - (currentPlayer?.currentPosition ?: 0L)).coerceAtLeast(0L) else 0L
+        tvNextEpisodeCountdown.text = if (isAutoNextEpisodeEnabled()) {
+            "Auto next in ${remaining / 1000L} sec"
+        } else {
+            "Auto next is off"
+        }
+        btnNextEpisodeAuto.text = if (isAutoNextEpisodeEnabled()) "Auto On" else "Auto Off"
+    }
+
+    private fun maybeShowNextEpisodePrompt() {
+        if (currentState != UiState.FULL_SCREEN || currentVodResumeKey == null || !hasNextSeriesEpisode()) {
+            hideNextEpisodePrompt()
+            return
+        }
+        val currentPlayer = player ?: return
+        val duration = currentPlayer.duration.takeIf { it > 0L && it != C.TIME_UNSET } ?: return
+        val remaining = duration - currentPlayer.currentPosition
+        if (remaining in 1L..60_000L) {
+            updateNextEpisodePrompt()
+            nextEpisodePrompt.visibility = View.VISIBLE
+        } else {
+            hideNextEpisodePrompt()
+        }
+    }
+
+    private fun hideNextEpisodePrompt() {
+        if (::nextEpisodePrompt.isInitialized) {
+            nextEpisodePrompt.visibility = View.GONE
+        }
+    }
+
+    private fun handleVodEnded() {
+        currentVodResumeKey?.let { key ->
+            markVodWatched(key)
+            clearVodResumeByKey(key)
+        }
+        if (hasNextSeriesEpisode()) {
+            if (isAutoNextEpisodeEnabled()) {
+                playNextSeriesEpisode()
+            } else {
+                updateNextEpisodePrompt()
+                nextEpisodePrompt.visibility = View.VISIBLE
+            }
+        } else {
+            hideNextEpisodePrompt()
+        }
+    }
+
+    private fun playNextSeriesEpisode(): Boolean {
+        if (!hasNextSeriesEpisode()) return false
+        currentVodResumeKey?.let { key ->
+            markVodWatched(key)
+            clearVodResumeByKey(key)
+        }
+        currentVodResumeKey = null
+        val nextIndex = seriesEpisodeIndex + 1
+        val url = seriesEpisodeUrls.getOrNull(nextIndex) ?: return false
+        val title = seriesEpisodeTitles.getOrNull(nextIndex) ?: "Next episode"
+        val resumeKey = seriesEpisodeResumeKeys.getOrNull(nextIndex) ?: return false
+        seriesEpisodeIndex = nextIndex
+        hideNextEpisodePrompt()
+        startVodPlayback(url, title, resumeKey, getVodResumeMs(resumeKey))
+        return true
     }
 
     private fun showMovieControls(focusControls: Boolean = true, showExtras: Boolean = true): Boolean {
@@ -4459,6 +4567,7 @@ class MainActivity : FragmentActivity() {
     private fun playMedia(url: String, title: String, targetState: UiState? = UiState.FULL_SCREEN) {
         saveVodResumeProgress()
         stopVodResumeTicker()
+        clearSeriesQueue()
         currentVodResumeKey = null
         currentVodUrl = null
         currentVodTitle = null
@@ -4483,6 +4592,7 @@ class MainActivity : FragmentActivity() {
         val uniqueUrls = urls.map { it.trim() }.filter { it.isNotBlank() }.distinct()
         saveVodResumeProgress()
         stopVodResumeTicker()
+        clearSeriesQueue()
         currentVodResumeKey = null
         currentVodUrl = null
         currentVodTitle = null
@@ -4504,6 +4614,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun playVodWithResume(url: String, title: String, resumeKey: String) {
+        if (!resumeKey.startsWith("series_")) clearSeriesQueue()
         val savedMs = getVodResumeMs(resumeKey)
         if (savedMs < 10_000L) {
             startVodPlayback(url, title, resumeKey, 0L)
@@ -4524,6 +4635,7 @@ class MainActivity : FragmentActivity() {
 
     private fun startVodPlayback(url: String, title: String, resumeKey: String, startPositionMs: Long) {
         saveVodResumeProgress()
+        hideNextEpisodePrompt()
         currentChannel = null
         currentVodResumeKey = resumeKey
         lastVodAudioWarningKey = null
@@ -4557,6 +4669,7 @@ class MainActivity : FragmentActivity() {
             override fun run() {
                 if (currentVodResumeKey != null) {
                     saveVodResumeProgress()
+                    maybeShowNextEpisodePrompt()
                     vodResumeHandler.postDelayed(this, 5_000L)
                 }
             }
@@ -4583,7 +4696,8 @@ class MainActivity : FragmentActivity() {
         val key = currentVodResumeKey ?: return
         val pos = player?.currentPosition ?: 0L
         val duration = player?.duration ?: 0L
-        if (duration > 0L && pos >= duration - 30_000L) {
+        if (duration > 0L && pos >= duration - VOD_WATCHED_REMAINING_MS) {
+            markVodWatched(key)
             clearVodResumeByKey(key)
             return
         }
@@ -4648,6 +4762,13 @@ class MainActivity : FragmentActivity() {
             .apply()
     }
 
+    private fun markVodWatched(key: String) {
+        getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(vodWatchedPrefsKey(key), true)
+            .apply()
+    }
+
     private fun getVodResumeMs(key: String): Long {
         return getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
             .getLong(vodResumePrefsKey(key), 0L)
@@ -4655,6 +4776,8 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun vodResumePrefsKey(key: String): String = "vod_resume_$key"
+
+    private fun vodWatchedPrefsKey(key: String): String = "$KEY_VOD_WATCHED_PREFIX$key"
 
     private fun movieResumeKey(streamId: Int): String = "movie_$streamId"
 
@@ -4676,8 +4799,37 @@ class MainActivity : FragmentActivity() {
         val title = intent?.getStringExtra("media_title")?.takeIf { it.isNotBlank() } ?: "Playback"
         val resumeKey = intent?.getStringExtra("resume_key")?.takeIf { it.isNotBlank() }
             ?: "ext_${playUrl.hashCode()}"
+        configureSeriesQueue(intent, resumeKey)
         playVodWithResume(playUrl, title, resumeKey)
         return true
+    }
+
+    private fun configureSeriesQueue(intent: Intent?, resumeKey: String) {
+        val urls = intent?.getStringArrayListExtra(EXTRA_SERIES_EPISODE_URLS).orEmpty()
+        val titles = intent?.getStringArrayListExtra(EXTRA_SERIES_EPISODE_TITLES).orEmpty()
+        val keys = intent?.getStringArrayListExtra(EXTRA_SERIES_EPISODE_KEYS).orEmpty()
+        val index = intent?.getIntExtra(EXTRA_SERIES_EPISODE_INDEX, -1) ?: -1
+        if (resumeKey.startsWith("series_") &&
+            urls.isNotEmpty() &&
+            urls.size == titles.size &&
+            urls.size == keys.size &&
+            index in urls.indices
+        ) {
+            seriesEpisodeUrls = urls
+            seriesEpisodeTitles = titles
+            seriesEpisodeResumeKeys = keys
+            seriesEpisodeIndex = index
+        } else {
+            clearSeriesQueue()
+        }
+    }
+
+    private fun clearSeriesQueue() {
+        seriesEpisodeUrls = emptyList()
+        seriesEpisodeTitles = emptyList()
+        seriesEpisodeResumeKeys = emptyList()
+        seriesEpisodeIndex = -1
+        hideNextEpisodePrompt()
     }
 
     private fun updateUiState(newState: UiState) {
@@ -4807,10 +4959,10 @@ class MainActivity : FragmentActivity() {
                     if (seekMovieFromRemote(30_000L)) return true
                 }
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
-                    if (movieControlsButtons.visibility != View.VISIBLE && seekMovieFromRemote(-30_000L, focusControls = false)) return true
+                    if (seekMovieFromRemote(-30_000L, focusControls = false)) return true
                 }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    if (movieControlsButtons.visibility != View.VISIBLE && seekMovieFromRemote(30_000L, focusControls = false)) return true
+                    if (seekMovieFromRemote(30_000L, focusControls = false)) return true
                 }
             }
         }
@@ -4826,10 +4978,10 @@ class MainActivity : FragmentActivity() {
                 if (seekMovieFromRemote(30_000L)) return true
             }
             KeyEvent.KEYCODE_DPAD_LEFT -> {
-                if (movieControlsButtons.visibility != View.VISIBLE && seekMovieFromRemote(-30_000L, focusControls = false)) return true
+                if (seekMovieFromRemote(-30_000L, focusControls = false)) return true
             }
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                if (movieControlsButtons.visibility != View.VISIBLE && seekMovieFromRemote(30_000L, focusControls = false)) return true
+                if (seekMovieFromRemote(30_000L, focusControls = false)) return true
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (movieControlsBar.visibility == View.VISIBLE &&
@@ -6726,6 +6878,7 @@ class MainActivity : FragmentActivity() {
         private const val LIVE_STREAM_FORMAT_HLS = "hls"
         private const val KEY_AUDIO_PASSTHROUGH = "player_audio_passthrough"
         private const val KEY_AUDIO_OFFSET_MS = "player_audio_offset_ms"
+        private const val KEY_AUTO_NEXT_EPISODE = "player_auto_next_episode"
         private const val KEY_TUNNELED_PLAYBACK = "player_tunneled_playback"
         private const val KEY_BUFFER_SIZE_SEC = "player_buffer_size_sec"
         private const val KEY_LAST_UI_STATE = "last_ui_state"
@@ -6736,9 +6889,15 @@ class MainActivity : FragmentActivity() {
         private const val KEY_LAST_PLAYBACK_RESUME_KEY = "last_playback_resume_key"
         private const val KEY_LAST_PLAYBACK_CHANNEL_ID = "last_playback_channel_id"
         private const val KEY_LAST_PLAYBACK_LIVE_CATEGORY_ID = "last_playback_live_category_id"
+        private const val VOD_WATCHED_REMAINING_MS = 600_000L
         private const val LAST_PLAYBACK_LIVE = "live"
         private const val LAST_PLAYBACK_MOVIE = "movie"
         private const val LAST_PLAYBACK_SERIES = "series"
+        private const val KEY_VOD_WATCHED_PREFIX = "vod_watched_"
+        private const val EXTRA_SERIES_EPISODE_URLS = "series_episode_urls"
+        private const val EXTRA_SERIES_EPISODE_TITLES = "series_episode_titles"
+        private const val EXTRA_SERIES_EPISODE_KEYS = "series_episode_keys"
+        private const val EXTRA_SERIES_EPISODE_INDEX = "series_episode_index"
         private const val KEY_RECENT_CHANNELS = "recent_channel_ids"
         private const val KEY_LAST_CATEGORY_ID_LIVE = "last_category_id_live"
         private const val KEY_LAST_CATEGORY_ID_MOVIES = "last_category_id_movies"

@@ -1,7 +1,7 @@
 {
-  "versionCode": 49,
-  "versionName": "1.9.13",
+  "versionCode": 50,
+  "versionName": "1.9.14",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Improves branded app updates so the installer uses the correct APK and prevents wrong-package installs."
+  "notes": "Adds smoother movie and series seeking, next episode controls, auto-next playback, and watched episode check marks."
 }
 

@@ -83,6 +83,7 @@ class PlaybackSettingsActivity : AppCompatActivity() {
         val tunneledLabel = if (prefs.getBoolean(KEY_TUNNELED_PLAYBACK, false)) "On" else "Off"
         val bufferLabel = bufferOptions.firstOrNull { it.second == prefs.getInt(KEY_BUFFER_SIZE_SEC, 60) }?.first ?: "Large (60 sec)"
         val passthroughLabel = if (prefs.getBoolean(KEY_AUDIO_PASSTHROUGH, false)) "On" else "Off"
+        val autoNextLabel = if (prefs.getBoolean(KEY_AUTO_NEXT_EPISODE, true)) "On" else "Off"
         val audioOffsetMs = prefs.getInt(KEY_AUDIO_OFFSET_MS, 0)
         val audioOffsetLabel = audioOffsetOptions.firstOrNull { it.second == audioOffsetMs }?.first ?: "$audioOffsetMs ms"
 
@@ -95,6 +96,7 @@ class PlaybackSettingsActivity : AppCompatActivity() {
             "Buffer size: $bufferLabel",
             "Audio passthrough: $passthroughLabel",
             "Audio offset: $audioOffsetLabel",
+            "Auto next episode: $autoNextLabel",
             "Auto play last channel on startup: $autoplayLabel",
             "Default aspect ratio: $aspectLabel",
             "Mini info timeout: $timeoutLabel"
@@ -110,6 +112,7 @@ class PlaybackSettingsActivity : AppCompatActivity() {
                 selection.startsWith("Buffer size") -> showBufferDialog()
                 selection.startsWith("Audio passthrough") -> toggleBoolean(KEY_AUDIO_PASSTHROUGH, false)
                 selection.startsWith("Audio offset") -> showAudioOffsetDialog()
+                selection.startsWith("Auto next episode") -> toggleBoolean(KEY_AUTO_NEXT_EPISODE, true)
                 selection.startsWith("Auto play last channel") -> toggleBoolean(KEY_AUTOPLAY_LAST_CHANNEL, true)
                 selection.startsWith("Default aspect ratio") -> showAspectRatioDialog()
                 selection.startsWith("Mini info timeout") -> showMiniInfoTimeoutDialog()
@@ -221,5 +224,6 @@ class PlaybackSettingsActivity : AppCompatActivity() {
         const val KEY_BUFFER_SIZE_SEC = "player_buffer_size_sec"
         const val KEY_AUDIO_PASSTHROUGH = "player_audio_passthrough"
         const val KEY_AUDIO_OFFSET_MS = "player_audio_offset_ms"
+        const val KEY_AUTO_NEXT_EPISODE = "player_auto_next_episode"
     }
 }

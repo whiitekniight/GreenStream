@@ -1,6 +1,7 @@
 package com.example.greenstreem
 
 import android.content.Intent
+import android.content.Context
 import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
@@ -28,6 +29,7 @@ class SeriesDetailsActivity : AppCompatActivity() {
 
     private var seriesId: Int = -1
     private var allEpisodes: Map<String, List<XtreamEpisode>> = emptyMap()
+    private var currentSeason: SeasonRow? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,7 +72,7 @@ class SeriesDetailsActivity : AppCompatActivity() {
                         if (seasonRows.isNotEmpty()) {
                             displayEpisodes(seasonRows.first())
                         } else {
-                            rvEpisodes.adapter = EpisodeAdapter(emptyList()) { }
+                            rvEpisodes.adapter = EpisodeAdapter(emptyList(), emptySet()) { _, _ -> }
                             Toast.makeText(this@SeriesDetailsActivity, "No episodes found for this series", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -80,6 +82,7 @@ class SeriesDetailsActivity : AppCompatActivity() {
     }
 
     private fun displayEpisodes(season: SeasonRow) {
+        currentSeason = season
         val seasonKey = season.key
         val episodes = allEpisodes[seasonKey]
             ?: allEpisodes[seasonKey.toIntOrNull()?.toString().orEmpty()]
@@ -88,16 +91,47 @@ class SeriesDetailsActivity : AppCompatActivity() {
                 allEpisodes.values.flatten().filter { it.season == number }.takeIf { it.isNotEmpty() }
             }
             ?: emptyList()
-        rvEpisodes.adapter = EpisodeAdapter(episodes) { episode ->
+        val urls = ArrayList<String>()
+        val titles = ArrayList<String>()
+        val resumeKeys = ArrayList<String>()
+        episodes.forEach { episode ->
+            urls.add(episodeUrl(episode))
+            titles.add(episode.title)
+            resumeKeys.add(resumeKeyFor(seasonKey, episode))
+        }
+        val watchedKeys = watchedKeysFor(resumeKeys)
+        rvEpisodes.adapter = EpisodeAdapter(episodes, watchedKeys) { episode, index ->
             val url = "${XtreamManager.baseUrl}/series/${XtreamManager.username}/${XtreamManager.password}/${episode.id}.${episode.containerExtension ?: "mp4"}"
             val resumeKey = "series_${seriesId}_s${seasonKey}_ep${episode.id}"
             val intent = Intent(this, MainActivity::class.java)
             intent.putExtra("play_url", url)
             intent.putExtra("media_title", episode.title)
             intent.putExtra("resume_key", resumeKey)
+            intent.putStringArrayListExtra(EXTRA_SERIES_EPISODE_URLS, urls)
+            intent.putStringArrayListExtra(EXTRA_SERIES_EPISODE_TITLES, titles)
+            intent.putStringArrayListExtra(EXTRA_SERIES_EPISODE_KEYS, resumeKeys)
+            intent.putExtra(EXTRA_SERIES_EPISODE_INDEX, index)
             intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             startActivity(intent)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        currentSeason?.let { displayEpisodes(it) }
+    }
+
+    private fun episodeUrl(episode: XtreamEpisode): String {
+        return "${XtreamManager.baseUrl}/series/${XtreamManager.username}/${XtreamManager.password}/${episode.id}.${episode.containerExtension ?: "mp4"}"
+    }
+
+    private fun resumeKeyFor(seasonKey: String, episode: XtreamEpisode): String {
+        return "series_${seriesId}_s${seasonKey}_ep${episode.id}"
+    }
+
+    private fun watchedKeysFor(keys: List<String>): Set<String> {
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        return keys.filter { prefs.getBoolean("$KEY_VOD_WATCHED_PREFIX$it", false) }.toSet()
     }
 
     private fun buildSeasonRows(
@@ -195,7 +229,8 @@ class SeriesDetailsActivity : AppCompatActivity() {
 
     private class EpisodeAdapter(
         private val items: List<XtreamEpisode>,
-        private val onClick: (XtreamEpisode) -> Unit
+        private val watchedKeys: Set<String>,
+        private val onClick: (XtreamEpisode, Int) -> Unit
     ) : RecyclerView.Adapter<EpisodeAdapter.VH>() {
         class VH(v: View) : RecyclerView.ViewHolder(v) {
             val tv: TextView = v.findViewById(android.R.id.text1)
@@ -206,12 +241,21 @@ class SeriesDetailsActivity : AppCompatActivity() {
         }
         override fun onBindViewHolder(holder: VH, position: Int) {
             val e = items[position]
-            holder.tv.text = "E${e.episodeNum}: ${e.title}"
+            val marker = if (watchedKeys.any { it.endsWith("_ep${e.id}") }) "✓ " else ""
+            holder.tv.text = "$marker E${e.episodeNum}: ${e.title}"
             holder.tv.setTextColor(android.graphics.Color.WHITE)
             holder.itemView.isFocusable = true
             holder.itemView.setBackgroundResource(R.drawable.selector_button_bg)
-            holder.itemView.setOnClickListener { onClick(e) }
+            holder.itemView.setOnClickListener { onClick(e, position) }
         }
         override fun getItemCount() = items.size
+    }
+
+    companion object {
+        private const val KEY_VOD_WATCHED_PREFIX = "vod_watched_"
+        private const val EXTRA_SERIES_EPISODE_URLS = "series_episode_urls"
+        private const val EXTRA_SERIES_EPISODE_TITLES = "series_episode_titles"
+        private const val EXTRA_SERIES_EPISODE_KEYS = "series_episode_keys"
+        private const val EXTRA_SERIES_EPISODE_INDEX = "series_episode_index"
     }
 }
