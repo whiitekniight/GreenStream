@@ -1714,12 +1714,23 @@ class MainActivity : FragmentActivity() {
         updateMovieProgress(target, duration ?: 0L)
     }
 
-    private fun seekMovieFromRemote(deltaMs: Long, focusControls: Boolean = true): Boolean {
+    private fun seekMovieFromRemote(
+        deltaMs: Long,
+        focusControls: Boolean = true,
+        allowWhenControlsVisible: Boolean = false
+    ): Boolean {
         if (currentState != UiState.FULL_SCREEN || currentMode == ContentMode.LIVE_TV || currentVodResumeKey == null) {
+            return false
+        }
+        if (!allowWhenControlsVisible && isMovieControlsMenuOpen()) {
             return false
         }
         seekMovieBy(deltaMs, focusControls)
         return true
+    }
+
+    private fun isMovieControlsMenuOpen(): Boolean {
+        return ::movieControlsButtons.isInitialized && movieControlsButtons.visibility == View.VISIBLE
     }
 
     private fun showMovieAudioOffsetDialog() {
@@ -4953,10 +4964,10 @@ class MainActivity : FragmentActivity() {
         if (event.action == KeyEvent.ACTION_DOWN) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                    if (seekMovieFromRemote(-30_000L)) return true
+                    if (seekMovieFromRemote(-30_000L, allowWhenControlsVisible = true)) return true
                 }
                 KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                    if (seekMovieFromRemote(30_000L)) return true
+                    if (seekMovieFromRemote(30_000L, allowWhenControlsVisible = true)) return true
                 }
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
                     if (seekMovieFromRemote(-30_000L, focusControls = false)) return true
@@ -4972,10 +4983,10 @@ class MainActivity : FragmentActivity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                if (seekMovieFromRemote(-30_000L)) return true
+                if (seekMovieFromRemote(-30_000L, allowWhenControlsVisible = true)) return true
             }
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                if (seekMovieFromRemote(30_000L)) return true
+                if (seekMovieFromRemote(30_000L, allowWhenControlsVisible = true)) return true
             }
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 if (seekMovieFromRemote(-30_000L, focusControls = false)) return true
