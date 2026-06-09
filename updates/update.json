@@ -1,7 +1,7 @@
 {
-  "versionCode": 50,
-  "versionName": "1.9.14",
+  "versionCode": 51,
+  "versionName": "1.9.15",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Adds smoother movie and series seeking, next episode controls, auto-next playback, and watched episode check marks."
+  "notes": "Fixes playback menu navigation so closed captions, audio, and picture options can be selected while keeping remote seek controls working."
 }
 
