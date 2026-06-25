@@ -1,7 +1,7 @@
 {
-  "versionCode": 51,
-  "versionName": "1.9.15",
+  "versionCode": 52,
+  "versionName": "1.9.16",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Fixes playback menu navigation so closed captions, audio, and picture options can be selected while keeping remote seek controls working."
+  "notes": "Fixes search result focus navigation so remote highlight can move into search results reliably."
 }
 
