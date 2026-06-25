@@ -23,6 +23,16 @@ val hasPlaySigningConfig = listOf(
     "keyPassword"
 ).all { !signingProperty(it).isNullOrBlank() }
 
+gradle.taskGraph.whenReady {
+    val releaseBuildRequested = allTasks.any { task ->
+        task.name.contains("Release", ignoreCase = false) &&
+            (task.name.startsWith("assemble") || task.name.startsWith("bundle"))
+    }
+    if (releaseBuildRequested && !hasPlaySigningConfig) {
+        throw GradleException("Release builds must use the shared GreenStreem signing config. Check keystore.properties or Gradle signing properties.")
+    }
+}
+
 android {
     namespace = "com.example.greenstreem"
     compileSdk = 36

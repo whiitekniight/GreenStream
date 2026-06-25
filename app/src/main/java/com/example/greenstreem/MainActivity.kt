@@ -1567,11 +1567,18 @@ class MainActivity : FragmentActivity() {
         val currentPlayer = player ?: return
         val duration = currentPlayer.duration.takeIf { it > 0L && it != C.TIME_UNSET } ?: return
         val remaining = duration - currentPlayer.currentPosition
-        if (remaining in 1L..60_000L) {
-            updateNextEpisodePrompt()
-            nextEpisodePrompt.visibility = View.VISIBLE
+        if (remaining in 1L..NEXT_EPISODE_PROMPT_REMAINING_MS) {
+            showNextEpisodePrompt(focusStart = nextEpisodePrompt.visibility != View.VISIBLE)
         } else {
             hideNextEpisodePrompt()
+        }
+    }
+
+    private fun showNextEpisodePrompt(focusStart: Boolean = false) {
+        updateNextEpisodePrompt()
+        nextEpisodePrompt.visibility = View.VISIBLE
+        if (focusStart) {
+            btnNextEpisodeStart.requestFocus()
         }
     }
 
@@ -1590,8 +1597,7 @@ class MainActivity : FragmentActivity() {
             if (isAutoNextEpisodeEnabled()) {
                 playNextSeriesEpisode()
             } else {
-                updateNextEpisodePrompt()
-                nextEpisodePrompt.visibility = View.VISIBLE
+                showNextEpisodePrompt(focusStart = true)
             }
         } else {
             hideNextEpisodePrompt()
@@ -1722,15 +1728,17 @@ class MainActivity : FragmentActivity() {
         if (currentState != UiState.FULL_SCREEN || currentMode == ContentMode.LIVE_TV || currentVodResumeKey == null) {
             return false
         }
-        if (!allowWhenControlsVisible && isMovieControlsMenuOpen()) {
+        if (!allowWhenControlsVisible && isPlaybackOverlayOpen()) {
             return false
         }
         seekMovieBy(deltaMs, focusControls)
         return true
     }
 
-    private fun isMovieControlsMenuOpen(): Boolean {
-        return ::movieControlsButtons.isInitialized && movieControlsButtons.visibility == View.VISIBLE
+    private fun isPlaybackOverlayOpen(): Boolean {
+        val controlsOpen = ::movieControlsButtons.isInitialized && movieControlsButtons.visibility == View.VISIBLE
+        val nextPromptOpen = ::nextEpisodePrompt.isInitialized && nextEpisodePrompt.visibility == View.VISIBLE
+        return controlsOpen || nextPromptOpen
     }
 
     private fun showMovieAudioOffsetDialog() {
@@ -3274,8 +3282,7 @@ class MainActivity : FragmentActivity() {
                     val primary = response.body()?.listings.orEmpty()
                     lifecycleScope.launch {
                         val merged = applySecondaryEpgFallback(channel, primary)
-                        cacheEpg(streamId, merged)
-                        setEpgDataBuffered(streamId, merged)
+                        keepExistingEpgWhenRefreshIsEmpty(streamId, merged)
                     }
                 }
                 override fun onFailure(call: Call<XtreamEpgResponse>, t: Throwable) {
@@ -3317,6 +3324,18 @@ class MainActivity : FragmentActivity() {
         }
         pendingEpgUiUpdates[streamId] = listings
         schedulePendingEpgUiFlush()
+    }
+
+    private fun keepExistingEpgWhenRefreshIsEmpty(streamId: Int, refreshed: List<XtreamEpgListing>) {
+        if (refreshed.isNotEmpty()) {
+            cacheEpg(streamId, refreshed)
+            setEpgDataBuffered(streamId, refreshed)
+            return
+        }
+        val existing = epgCacheByStreamId[streamId]
+        if (existing.hasCurrentGuideWindowListings()) {
+            setEpgDataBuffered(streamId, existing.orEmpty())
+        }
     }
 
     private fun schedulePendingEpgUiFlush() {
@@ -4681,11 +4700,11 @@ class MainActivity : FragmentActivity() {
                 if (currentVodResumeKey != null) {
                     saveVodResumeProgress()
                     maybeShowNextEpisodePrompt()
-                    vodResumeHandler.postDelayed(this, 5_000L)
+                    vodResumeHandler.postDelayed(this, VOD_RESUME_TICK_MS)
                 }
             }
         }
-        vodResumeHandler.postDelayed(vodResumeRunnable!!, 5_000L)
+        vodResumeHandler.postDelayed(vodResumeRunnable!!, VOD_RESUME_TICK_MS)
     }
 
     private fun stopVodResumeTicker() {
@@ -4699,7 +4718,9 @@ class MainActivity : FragmentActivity() {
         currentPlayer.trackSelectionParameters = currentPlayer.trackSelectionParameters
             .buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
             .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
             .build()
     }
 
@@ -6890,6 +6911,8 @@ class MainActivity : FragmentActivity() {
         private const val KEY_AUDIO_PASSTHROUGH = "player_audio_passthrough"
         private const val KEY_AUDIO_OFFSET_MS = "player_audio_offset_ms"
         private const val KEY_AUTO_NEXT_EPISODE = "player_auto_next_episode"
+        private const val NEXT_EPISODE_PROMPT_REMAINING_MS = 10_000L
+        private const val VOD_RESUME_TICK_MS = 1_000L
         private const val KEY_TUNNELED_PLAYBACK = "player_tunneled_playback"
         private const val KEY_BUFFER_SIZE_SEC = "player_buffer_size_sec"
         private const val KEY_LAST_UI_STATE = "last_ui_state"

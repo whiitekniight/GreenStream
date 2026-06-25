@@ -24,3 +24,4 @@ keystore.properties
 .vscode/
 /app/play/
 /app/sideload/
+/_private-autorenew/

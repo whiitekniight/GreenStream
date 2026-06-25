@@ -51,6 +51,7 @@ class SearchActivity : AppCompatActivity() {
     private var searchRunnable: Runnable? = null
     private var hasActiveSearch = false
     private var lastSearchQuery: String = ""
+    private var pendingFocusPosition: Int = RecyclerView.NO_POSITION
     private val gson = Gson()
 
     private data class ProgramSearchResult(
@@ -62,8 +63,9 @@ class SearchActivity : AppCompatActivity() {
         onRecentClick = { query ->
             etSearch.setText(query)
             etSearch.setSelection(query.length)
+            searchRunnable?.let { searchHandler.removeCallbacks(it) }
             performSearch(query, saveQuery = true)
-            rvResults.requestFocus()
+            focusFirstSearchItem()
         },
         onRecentDelete = { query -> deleteRecentQuery(query) },
         onClearRecent = { confirmClearRecentQueries() },
@@ -73,7 +75,8 @@ class SearchActivity : AppCompatActivity() {
         onMovieClick = { movie -> showMovieActions(movie) },
         onMovieLongClick = { movie -> showMovieActions(movie) },
         onSeriesClick = { series -> openSeries(series) },
-        onSeriesLongClick = { series -> showSeriesActions(series) }
+        onSeriesLongClick = { series -> showSeriesActions(series) },
+        onItemDpad = { position, keyCode -> moveSearchFocus(position, keyCode) }
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,6 +102,13 @@ class SearchActivity : AppCompatActivity() {
         
         rvResults.layoutManager = layoutManager
         rvResults.adapter = searchAdapter
+        rvResults.itemAnimator = null
+        rvResults.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+        searchAdapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
+            override fun onChanged() {
+                applyPendingSearchFocus()
+            }
+        })
         rvResults.setOnKeyListener { _, keyCode, event ->
             if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
                 handleSearchBack()
@@ -132,6 +142,18 @@ class SearchActivity : AppCompatActivity() {
                 actionId == EditorInfo.IME_ACTION_DONE
             if (submitAction || enterPressed) {
                 submitSearchFromKeyboard()
+                true
+            } else {
+                false
+            }
+        }
+        etSearch.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN &&
+                event.action == KeyEvent.ACTION_DOWN &&
+                searchAdapter.hasFocusableItems()
+            ) {
+                hideKeyboard()
+                focusFirstSearchItem()
                 true
             } else {
                 false
@@ -265,6 +287,7 @@ class SearchActivity : AppCompatActivity() {
 
     private fun rerunVisibleSearch() {
         val query = etSearch.text?.toString().orEmpty()
+        if (rvResults.hasFocus()) return
         if (query.trim().length >= 2 && query == lastSearchQuery) {
             performSearch(query, saveQuery = false)
         }
@@ -273,9 +296,58 @@ class SearchActivity : AppCompatActivity() {
     private fun submitSearchFromKeyboard() {
         searchRunnable?.let { searchHandler.removeCallbacks(it) }
         performSearch(etSearch.text?.toString().orEmpty(), saveQuery = true)
+        hideKeyboard()
+        focusFirstSearchItem()
+    }
+
+    private fun hideKeyboard() {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
         imm?.hideSoftInputFromWindow(etSearch.windowToken, 0)
-        rvResults.post { rvResults.requestFocus() }
+    }
+
+    private fun focusFirstSearchItem() {
+        val firstPosition = searchAdapter.firstFocusablePosition()
+        if (firstPosition == RecyclerView.NO_POSITION) {
+            etSearch.requestFocus()
+            return
+        }
+        queueSearchFocus(firstPosition)
+    }
+
+    private fun requestSearchItemFocus(position: Int) {
+        val itemView = rvResults.findViewHolderForAdapterPosition(position)?.itemView
+        if (itemView?.requestFocus() == true) return
+        rvResults.postDelayed({
+            rvResults.findViewHolderForAdapterPosition(position)?.itemView?.requestFocus()
+        }, 50L)
+    }
+
+    private fun moveSearchFocus(position: Int, keyCode: Int): Boolean {
+        val target = when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_DOWN -> searchAdapter.nextFocusablePosition(position)
+            KeyEvent.KEYCODE_DPAD_UP -> searchAdapter.previousFocusablePosition(position)
+            else -> RecyclerView.NO_POSITION
+        }
+        if (target == RecyclerView.NO_POSITION) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                etSearch.requestFocus()
+            }
+            return true
+        }
+        focusSearchItem(target)
+        return true
+    }
+
+    private fun focusSearchItem(position: Int) {
+        val itemView = rvResults.findViewHolderForAdapterPosition(position)?.itemView
+        if (itemView?.requestFocus() == true) return
+        queueSearchFocus(position)
+    }
+
+    private fun scrollSearchPositionIntoView(position: Int) {
+        val anchor = searchAdapter.headerPositionFor(position).takeIf { it != RecyclerView.NO_POSITION } ?: position
+        (rvResults.layoutManager as? GridLayoutManager)?.scrollToPositionWithOffset(anchor, 0)
+            ?: rvResults.scrollToPosition(anchor)
     }
 
     private fun performSearch(query: String, saveQuery: Boolean = true) {
@@ -283,10 +355,12 @@ class SearchActivity : AppCompatActivity() {
         if (normalized.length < 2) {
             hasActiveSearch = false
             lastSearchQuery = ""
+            pendingFocusPosition = RecyclerView.NO_POSITION
             searchAdapter.setRecentQueries(recentQueries)
             return
         }
         lastSearchQuery = query
+        val focusedPosition = currentSearchFocusPosition()
 
         val filteredChannels = allChannels.asSequence()
             .filter { it.name.contains(normalized, ignoreCase = true) }
@@ -311,6 +385,52 @@ class SearchActivity : AppCompatActivity() {
         searchAdapter.setResults(filteredChannels, filteredMovies, filteredSeries, filteredPrograms)
         hasActiveSearch = true
         if (saveQuery) saveRecentQuery(normalized)
+        if (focusedPosition != RecyclerView.NO_POSITION) {
+            focusSearchItemAtOrAfter(focusedPosition)
+        }
+    }
+
+    private fun currentSearchFocusPosition(): Int {
+        val focused = currentFocus ?: return RecyclerView.NO_POSITION
+        if (!rvResults.hasFocus() || focused === etSearch) return RecyclerView.NO_POSITION
+        val holder = rvResults.findContainingViewHolder(focused)
+        return holder?.bindingAdapterPosition?.takeIf { it != RecyclerView.NO_POSITION }
+            ?: RecyclerView.NO_POSITION
+    }
+
+    private fun focusSearchItemAtOrAfter(position: Int) {
+        val target = searchAdapter.focusablePositionAtOrAfter(position)
+        if (target == RecyclerView.NO_POSITION) return
+        queueSearchFocus(target)
+    }
+
+    private fun queueSearchFocus(position: Int) {
+        pendingFocusPosition = position
+        applyPendingSearchFocus()
+    }
+
+    private fun applyPendingSearchFocus() {
+        val position = pendingFocusPosition
+        if (position == RecyclerView.NO_POSITION) return
+        val target = searchAdapter.focusablePositionAtOrAfter(position)
+        if (target == RecyclerView.NO_POSITION) {
+            pendingFocusPosition = RecyclerView.NO_POSITION
+            return
+        }
+        scrollSearchPositionIntoView(target)
+        rvResults.post {
+            val itemView = rvResults.findViewHolderForAdapterPosition(target)?.itemView
+            if (itemView?.requestFocus() == true) {
+                pendingFocusPosition = RecyclerView.NO_POSITION
+            } else {
+                rvResults.postDelayed({
+                    val retryView = rvResults.findViewHolderForAdapterPosition(target)?.itemView
+                    if (retryView?.requestFocus() == true) {
+                        pendingFocusPosition = RecyclerView.NO_POSITION
+                    }
+                }, 50L)
+            }
+        }
     }
 
     private fun handleSearchBack() {
@@ -324,7 +444,7 @@ class SearchActivity : AppCompatActivity() {
                 etSearch.setText("")
                 hasActiveSearch = false
                 searchAdapter.setRecentQueries(recentQueries)
-                rvResults.requestFocus()
+                focusFirstSearchItem()
             }
             rvResults.hasFocus() -> etSearch.requestFocus()
             else -> finish()
@@ -652,7 +772,8 @@ class SearchActivity : AppCompatActivity() {
         private val onMovieClick: (XtreamVodStream) -> Unit,
         private val onMovieLongClick: (XtreamVodStream) -> Unit,
         private val onSeriesClick: (XtreamSeries) -> Unit,
-        private val onSeriesLongClick: (XtreamSeries) -> Unit
+        private val onSeriesLongClick: (XtreamSeries) -> Unit,
+        private val onItemDpad: (Int, Int) -> Boolean
     ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
         companion object {
@@ -663,12 +784,62 @@ class SearchActivity : AppCompatActivity() {
             const val TYPE_RECENT_QUERY = 4
             const val TYPE_RECENT_CLEAR = 5
             const val TYPE_PROGRAM = 6
+            private const val SEARCH_GRID_SPAN_COUNT = 6
         }
 
         private var items: List<Any> = emptyList()
 
+        fun hasFocusableItems(): Boolean = firstFocusablePosition() != RecyclerView.NO_POSITION
+
+        fun firstFocusablePosition(): Int {
+            return items.indexOfFirst { it !is String }
+                .takeIf { it >= 0 }
+                ?: RecyclerView.NO_POSITION
+        }
+
+        fun focusablePositionAtOrAfter(position: Int): Int {
+            if (items.isEmpty()) return RecyclerView.NO_POSITION
+            val safePosition = position.coerceIn(0, items.lastIndex)
+            val after = (safePosition..items.lastIndex).firstOrNull { items[it] !is String }
+            if (after != null) return after
+            return (safePosition downTo 0).firstOrNull { items[it] !is String }
+                ?: RecyclerView.NO_POSITION
+        }
+
+        fun headerPositionFor(position: Int): Int {
+            if (position !in items.indices) return RecyclerView.NO_POSITION
+            return (position downTo 0).firstOrNull { items[it] is String }
+                ?: RecyclerView.NO_POSITION
+        }
+
+        fun nextFocusablePosition(position: Int): Int {
+            return verticalFocusablePosition(position, down = true)
+        }
+
+        fun previousFocusablePosition(position: Int): Int {
+            return verticalFocusablePosition(position, down = false)
+        }
+
+        private fun verticalFocusablePosition(position: Int, down: Boolean): Int {
+            if (position !in items.indices) return RecyclerView.NO_POSITION
+            val step = if (isPosterItem(items[position])) SEARCH_GRID_SPAN_COUNT else 1
+            val firstCandidate = position + if (down) step else -step
+            val range = if (down) {
+                firstCandidate..items.lastIndex
+            } else {
+                firstCandidate downTo 0
+            }
+            return range.firstOrNull { it in items.indices && items[it] !is String }
+                ?: RecyclerView.NO_POSITION
+        }
+
+        private fun isPosterItem(item: Any): Boolean {
+            return item is XtreamVodStream || item is XtreamSeries
+        }
+
         fun setRecentQueries(queries: List<String>) {
             if (queries.isEmpty()) {
+                if (items.isEmpty()) return
                 items = emptyList()
                 notifyDataSetChanged()
                 return
@@ -677,6 +848,7 @@ class SearchActivity : AppCompatActivity() {
             newList.add("Recent Searches")
             newList.add(ClearRecentSearches)
             queries.forEach { newList.add(RecentSearchQuery(it)) }
+            if (items == newList) return
             items = newList
             notifyDataSetChanged()
         }
@@ -704,6 +876,7 @@ class SearchActivity : AppCompatActivity() {
                 newList.add("Series")
                 newList.addAll(series)
             }
+            if (items == newList) return
             items = newList
             notifyDataSetChanged()
         }
@@ -724,11 +897,43 @@ class SearchActivity : AppCompatActivity() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val inflater = LayoutInflater.from(parent.context)
             return when (viewType) {
-                TYPE_HEADER -> HeaderVH(inflater.inflate(android.R.layout.simple_list_item_1, parent, false))
-                TYPE_RECENT_CLEAR -> RecentVH(inflater.inflate(android.R.layout.simple_list_item_1, parent, false))
-                TYPE_RECENT_QUERY -> RecentVH(inflater.inflate(android.R.layout.simple_list_item_1, parent, false))
-                TYPE_PROGRAM -> ItemVH(inflater.inflate(R.layout.item_channel_epg, parent, false))
-                TYPE_CHANNEL -> ItemVH(inflater.inflate(R.layout.item_channel_epg, parent, false))
+                TYPE_HEADER -> HeaderVH(inflater.inflate(android.R.layout.simple_list_item_1, parent, false).apply {
+                    layoutParams = RecyclerView.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                    setPadding(18, 26, 18, 8)
+                })
+                TYPE_RECENT_CLEAR -> RecentVH(inflater.inflate(android.R.layout.simple_list_item_1, parent, false).apply {
+                    layoutParams = RecyclerView.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                })
+                TYPE_RECENT_QUERY -> RecentVH(inflater.inflate(android.R.layout.simple_list_item_1, parent, false).apply {
+                    layoutParams = RecyclerView.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                })
+                TYPE_PROGRAM -> ItemVH(inflater.inflate(R.layout.item_channel_epg, parent, false).apply {
+                    layoutParams = RecyclerView.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        topMargin = 4
+                        bottomMargin = 4
+                    }
+                })
+                TYPE_CHANNEL -> ItemVH(inflater.inflate(R.layout.item_channel_epg, parent, false).apply {
+                    layoutParams = RecyclerView.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        topMargin = 4
+                        bottomMargin = 4
+                    }
+                })
                 else -> ItemVH(inflater.inflate(R.layout.item_poster, parent, false))
             }
         }
@@ -737,13 +942,26 @@ class SearchActivity : AppCompatActivity() {
             val item = items[position]
             holder.itemView.isFocusable = true
             holder.itemView.setBackgroundResource(R.drawable.selector_button_bg)
+            holder.itemView.setOnKeyListener { _, keyCode, event ->
+                if (event.action == KeyEvent.ACTION_DOWN &&
+                    (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_UP)
+                ) {
+                    val adapterPosition = holder.bindingAdapterPosition
+                    if (adapterPosition != RecyclerView.NO_POSITION) {
+                        return@setOnKeyListener onItemDpad(adapterPosition, keyCode)
+                    }
+                }
+                false
+            }
 
             when (holder) {
                 is HeaderVH -> {
                     val tv = holder.itemView.findViewById<TextView>(android.R.id.text1)
                     tv.text = item as String
                     tv.setTextColor(android.graphics.Color.YELLOW)
-                    tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                    tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
+                    tv.textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+                    tv.typeface = android.graphics.Typeface.DEFAULT_BOLD
                     holder.itemView.isFocusable = false
                 }
                 is RecentVH -> {

@@ -84,13 +84,7 @@ class SeriesDetailsActivity : AppCompatActivity() {
     private fun displayEpisodes(season: SeasonRow) {
         currentSeason = season
         val seasonKey = season.key
-        val episodes = allEpisodes[seasonKey]
-            ?: allEpisodes[seasonKey.toIntOrNull()?.toString().orEmpty()]
-            ?: allEpisodes[seasonKey.toIntOrNull()?.let { "%02d".format(it) }.orEmpty()]
-            ?: season.number?.let { number ->
-                allEpisodes.values.flatten().filter { it.season == number }.takeIf { it.isNotEmpty() }
-            }
-            ?: emptyList()
+        val episodes = episodesForSeason(season)
         val urls = ArrayList<String>()
         val titles = ArrayList<String>()
         val resumeKeys = ArrayList<String>()
@@ -101,19 +95,44 @@ class SeriesDetailsActivity : AppCompatActivity() {
         }
         val watchedKeys = watchedKeysFor(resumeKeys)
         rvEpisodes.adapter = EpisodeAdapter(episodes, watchedKeys) { episode, index ->
-            val url = "${XtreamManager.baseUrl}/series/${XtreamManager.username}/${XtreamManager.password}/${episode.id}.${episode.containerExtension ?: "mp4"}"
-            val resumeKey = "series_${seriesId}_s${seasonKey}_ep${episode.id}"
+            val queue = buildSeriesQueue()
+            val queueIndex = queue.indexOfFirst { it.seasonKey == seasonKey && it.episode.id == episode.id }
+                .takeIf { it >= 0 }
+                ?: index
+            val queueItem = queue.getOrNull(queueIndex)
+                ?: SeriesQueueItem(seasonKey, episode)
+            val url = episodeUrl(queueItem.episode)
+            val resumeKey = resumeKeyFor(queueItem.seasonKey, queueItem.episode)
             val intent = Intent(this, MainActivity::class.java)
             intent.putExtra("play_url", url)
-            intent.putExtra("media_title", episode.title)
+            intent.putExtra("media_title", queueItem.episode.title)
             intent.putExtra("resume_key", resumeKey)
-            intent.putStringArrayListExtra(EXTRA_SERIES_EPISODE_URLS, urls)
-            intent.putStringArrayListExtra(EXTRA_SERIES_EPISODE_TITLES, titles)
-            intent.putStringArrayListExtra(EXTRA_SERIES_EPISODE_KEYS, resumeKeys)
-            intent.putExtra(EXTRA_SERIES_EPISODE_INDEX, index)
+            intent.putStringArrayListExtra(EXTRA_SERIES_EPISODE_URLS, ArrayList(queue.map { episodeUrl(it.episode) }))
+            intent.putStringArrayListExtra(EXTRA_SERIES_EPISODE_TITLES, ArrayList(queue.map { it.episode.title }))
+            intent.putStringArrayListExtra(EXTRA_SERIES_EPISODE_KEYS, ArrayList(queue.map { resumeKeyFor(it.seasonKey, it.episode) }))
+            intent.putExtra(EXTRA_SERIES_EPISODE_INDEX, queueIndex)
             intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             startActivity(intent)
         }
+    }
+
+    private fun episodesForSeason(season: SeasonRow): List<XtreamEpisode> {
+        val seasonKey = season.key
+        return allEpisodes[seasonKey]
+            ?: allEpisodes[seasonKey.toIntOrNull()?.toString().orEmpty()]
+            ?: allEpisodes[seasonKey.toIntOrNull()?.let { "%02d".format(it) }.orEmpty()]
+            ?: season.number?.let { number ->
+                allEpisodes.values.flatten().filter { it.season == number }.takeIf { it.isNotEmpty() }
+            }
+            ?: emptyList()
+    }
+
+    private fun buildSeriesQueue(): List<SeriesQueueItem> {
+        return buildSeasonRows(emptyList(), allEpisodes)
+            .flatMap { season ->
+                episodesForSeason(season).map { episode -> SeriesQueueItem(season.key, episode) }
+            }
+            .distinctBy { it.episode.id }
     }
 
     override fun onResume() {
@@ -185,6 +204,11 @@ class SeriesDetailsActivity : AppCompatActivity() {
         val key: String,
         val label: String,
         val number: Int?
+    )
+
+    private data class SeriesQueueItem(
+        val seasonKey: String,
+        val episode: XtreamEpisode
     )
 
     private class SeasonAdapter(

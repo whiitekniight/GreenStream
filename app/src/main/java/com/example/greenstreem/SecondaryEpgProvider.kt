@@ -2,6 +2,7 @@ package com.example.greenstreem
 
 import android.content.Context
 import android.util.Xml
+import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -187,7 +188,8 @@ object SecondaryEpgProvider {
         val indexedAt = prefs.getLong(KEY_XMLTV_INDEXED_AT, 0L)
         val indexedVersion = prefs.getInt(KEY_XMLTV_INDEX_VERSION, 0)
         val now = System.currentTimeMillis()
-        val dao = AppDatabase.getDatabase(context).xmltvDao()
+        val database = AppDatabase.getDatabase(context)
+        val dao = database.xmltvDao()
         if (indexedUrl == url &&
             indexedVersion == XMLTV_INDEX_VERSION &&
             now - indexedAt < CACHE_MAX_AGE_MS &&
@@ -214,7 +216,8 @@ object SecondaryEpgProvider {
     }
 
     private suspend fun indexXmltv(context: Context, url: String) = withContext(Dispatchers.IO) {
-        val dao = AppDatabase.getDatabase(context).xmltvDao()
+        val database = AppDatabase.getDatabase(context)
+        val dao = database.xmltvDao()
         val aliases = linkedMapOf<String, XmltvAliasEntity>()
         val ambiguousAliases = mutableSetOf<String>()
         val channelDisplayNames = linkedMapOf<String, String>()
@@ -233,11 +236,13 @@ object SecondaryEpgProvider {
                 programs.clear()
             }
             if (stagedPrograms.isNotEmpty()) {
-                dao.clearPrograms()
-                dao.clearAliases()
-                if (aliases.isNotEmpty()) dao.insertAliases(aliases.values.toList())
-                stagedPrograms.chunked(1000).forEach { batch ->
-                    dao.insertPrograms(batch)
+                database.withTransaction {
+                    dao.clearPrograms()
+                    dao.clearAliases()
+                    if (aliases.isNotEmpty()) dao.insertAliases(aliases.values.toList())
+                    stagedPrograms.chunked(1000).forEach { batch ->
+                        dao.insertPrograms(batch)
+                    }
                 }
             }
         }
