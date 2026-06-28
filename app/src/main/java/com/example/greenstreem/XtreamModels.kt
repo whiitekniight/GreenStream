@@ -101,7 +101,8 @@ data class XtreamEpisode(
     @SerializedName("title") val title: String,
     @SerializedName("container_extension") val containerExtension: String?,
     @SerializedName("season") val season: Int?,
-    @SerializedName("episode_num") val episodeNum: Int?
+    @SerializedName("episode_num") val episodeNum: Int?,
+    val directUrl: String? = null
 )
 
 data class XtreamSeriesDetailsInfo(

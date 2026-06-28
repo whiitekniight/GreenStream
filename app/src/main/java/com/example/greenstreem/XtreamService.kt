@@ -1,5 +1,6 @@
 package com.example.greenstreem
 
+import com.google.gson.JsonObject
 import retrofit2.Call
 import retrofit2.http.GET
 import retrofit2.http.Query
@@ -72,4 +73,11 @@ interface XtreamService {
         @Query("password") pass: String,
         @Query("series_id") seriesId: Int
     ): Call<XtreamSeriesInfoResponse>
+
+    @GET("player_api.php?action=get_series_info")
+    fun getSeriesInfoRaw(
+        @Query("username") user: String,
+        @Query("password") pass: String,
+        @Query("series_id") seriesId: Int
+    ): Call<JsonObject>
 }

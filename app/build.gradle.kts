@@ -109,18 +109,28 @@ android {
 val appVersionName = android.defaultConfig.versionName ?: "0.0"
 
 val renameDebugApk = tasks.register<Copy>("renameDebugApk") {
-    from(layout.buildDirectory.dir("outputs/apk")) {
-        include("**/*debug*.apk")
-    }
+    dependsOn(
+        "packageBrandedSideloadDebug",
+        "packagePlayDebug",
+        "packageSideloadDebug"
+    )
+    from(layout.buildDirectory.dir("outputs/apk/brandedSideload/debug")) { include("*.apk") }
+    from(layout.buildDirectory.dir("outputs/apk/play/debug")) { include("*.apk") }
+    from(layout.buildDirectory.dir("outputs/apk/sideload/debug")) { include("*.apk") }
     into(layout.buildDirectory.dir("outputs/renamed_apk/debug"))
     includeEmptyDirs = false
     rename { name -> "GreenStreem-v${appVersionName}-$name" }
 }
 
 val renameReleaseApk = tasks.register<Copy>("renameReleaseApk") {
-    from(layout.buildDirectory.dir("outputs/apk")) {
-        include("**/*release*.apk")
-    }
+    dependsOn(
+        "packageBrandedSideloadRelease",
+        "packagePlayRelease",
+        "packageSideloadRelease"
+    )
+    from(layout.buildDirectory.dir("outputs/apk/brandedSideload/release")) { include("*.apk") }
+    from(layout.buildDirectory.dir("outputs/apk/play/release")) { include("*.apk") }
+    from(layout.buildDirectory.dir("outputs/apk/sideload/release")) { include("*.apk") }
     into(layout.buildDirectory.dir("outputs/renamed_apk/release"))
     includeEmptyDirs = false
     rename { name -> "GreenStreem-v${appVersionName}-$name" }
