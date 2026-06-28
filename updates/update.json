@@ -1,7 +1,7 @@
 {
-  "versionCode": 52,
-  "versionName": "1.9.16",
+  "versionCode": 53,
+  "versionName": "1.9.17",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Fixes search result focus navigation so remote highlight can move into search results reliably."
+  "notes": "Improves VOD series loading, fixes missing episodes on some providers, hides unnecessary Season 0, and shows/caches episode results faster."
 }
 

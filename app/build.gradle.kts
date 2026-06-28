@@ -41,8 +41,8 @@ android {
         applicationId = "com.example.greenstreem"
         minSdk = 23
         targetSdk = 36
-        versionCode = 52
-        versionName = "1.9.16"
+        versionCode = 53
+        versionName = "1.9.17"
     }
 
     flavorDimensions += "distribution"

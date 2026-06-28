@@ -19,6 +19,7 @@ import com.bumptech.glide.Glide
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -28,6 +29,7 @@ import retrofit2.Response
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.URL
+import java.net.URLConnection
 import java.net.URLEncoder
 import java.util.Locale
 
@@ -36,6 +38,7 @@ class SeriesDetailsActivity : AppCompatActivity() {
     private lateinit var ivCover: ImageView
     private lateinit var tvName: TextView
     private lateinit var tvPlot: TextView
+    private lateinit var tvStatus: TextView
     private lateinit var rvSeasons: RecyclerView
     private lateinit var rvEpisodes: RecyclerView
 
@@ -52,6 +55,7 @@ class SeriesDetailsActivity : AppCompatActivity() {
         ivCover = findViewById(R.id.ivSeriesCover)
         tvName = findViewById(R.id.tvSeriesName)
         tvPlot = findViewById(R.id.tvSeriesPlot)
+        tvStatus = findViewById(R.id.tvSeriesStatus)
         rvSeasons = findViewById(R.id.rvSeasons)
         rvEpisodes = findViewById(R.id.rvEpisodes)
 
@@ -65,12 +69,14 @@ class SeriesDetailsActivity : AppCompatActivity() {
 
         rvSeasons.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         rvEpisodes.layoutManager = LinearLayoutManager(this)
+        showSeriesStatus("Loading episodes...")
 
         fetchSeriesInfo()
     }
 
     private fun fetchSeriesInfo() {
         val service = XtreamManager.getService() ?: return
+        showCachedFallbackEpisodesIfAvailable()
         service.getSeriesInfoRaw(XtreamManager.username, XtreamManager.password, seriesId)
             .enqueue(object : Callback<JsonObject> {
                 override fun onResponse(call: Call<JsonObject>, response: Response<JsonObject>) {
@@ -82,29 +88,66 @@ class SeriesDetailsActivity : AppCompatActivity() {
                             }
                             val parsedEpisodes = data?.episodes.orEmpty().filterValues { it.isNotEmpty() }
                             val fallbackEpisodes = if (parsedEpisodes.isEmpty()) {
+                                showSeriesStatus("Loading episodes from playlist...")
                                 withContext(Dispatchers.IO) { loadSeriesEpisodesFromM3u(seriesName) }
                             } else {
                                 emptyMap()
                             }
                             tvPlot.text = data?.info?.plot ?: "No description available"
                             allEpisodes = if (parsedEpisodes.isNotEmpty()) parsedEpisodes else fallbackEpisodes
-
-                            val seasonRows = buildSeasonRows(data?.seasons.orEmpty(), allEpisodes)
-                            rvSeasons.adapter = SeasonAdapter(seasonRows) { season ->
-                                displayEpisodes(season)
+                            if (parsedEpisodes.isEmpty() && fallbackEpisodes.isNotEmpty()) {
+                                saveFallbackEpisodesToCache(fallbackEpisodes)
                             }
 
-                            if (seasonRows.isNotEmpty()) {
-                                displayEpisodes(seasonRows.first())
+                            if (showSeriesEpisodes(data?.seasons.orEmpty(), allEpisodes)) {
+                                hideSeriesStatus()
                             } else {
-                                rvEpisodes.adapter = EpisodeAdapter(emptyList(), emptySet()) { _, _ -> }
+                                showSeriesStatus("No episodes found")
                                 Toast.makeText(this@SeriesDetailsActivity, "No episodes found for this series", Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
                 }
-                override fun onFailure(call: Call<JsonObject>, t: Throwable) {}
+                override fun onFailure(call: Call<JsonObject>, t: Throwable) {
+                    if (allEpisodes.isEmpty()) {
+                        showSeriesStatus("Unable to load episodes")
+                    }
+                }
             })
+    }
+
+    private fun showCachedFallbackEpisodesIfAvailable() {
+        val cached = loadFallbackEpisodesFromCache()
+        if (cached.isEmpty()) return
+        allEpisodes = cached
+        if (showSeriesEpisodes(emptyList(), cached)) {
+            showSeriesStatus("Refreshing episodes...")
+        }
+    }
+
+    private fun showSeriesEpisodes(
+        seasons: List<XtreamSeason>,
+        episodes: Map<String, List<XtreamEpisode>>
+    ): Boolean {
+        val seasonRows = buildSeasonRows(seasons, episodes)
+        rvSeasons.adapter = SeasonAdapter(seasonRows) { season ->
+            displayEpisodes(season)
+        }
+        if (seasonRows.isEmpty()) {
+            rvEpisodes.adapter = EpisodeAdapter(emptyList(), emptySet()) { _, _ -> }
+            return false
+        }
+        displayEpisodes(seasonRows.first())
+        return true
+    }
+
+    private fun showSeriesStatus(message: String) {
+        tvStatus.text = message
+        tvStatus.visibility = View.VISIBLE
+    }
+
+    private fun hideSeriesStatus() {
+        tvStatus.visibility = View.GONE
     }
 
     private fun parseSeriesInfo(root: JsonObject): XtreamSeriesInfoResponse {
@@ -213,7 +256,7 @@ class SeriesDetailsActivity : AppCompatActivity() {
     private fun loadSeriesEpisodesFromM3u(showName: String): Map<String, List<XtreamEpisode>> {
         if (showName.isBlank() || XtreamManager.baseUrl.isBlank()) return emptyMap()
         return runCatching {
-            URL(xtreamM3uUrl()).openStream().use { stream ->
+            URL(xtreamM3uUrl()).openConnection().applyPlaylistTimeouts().getInputStream().use { stream ->
                 val target = normalizeSeriesTitle(showName)
                 val grouped = linkedMapOf<String, MutableList<XtreamEpisode>>()
                 val reader = BufferedReader(InputStreamReader(stream))
@@ -244,6 +287,40 @@ class SeriesDetailsActivity : AppCompatActivity() {
                 }
             }
         }.getOrDefault(emptyMap())
+    }
+
+    private fun URLConnection.applyPlaylistTimeouts(): URLConnection {
+        connectTimeout = PLAYLIST_CONNECT_TIMEOUT_MS
+        readTimeout = PLAYLIST_READ_TIMEOUT_MS
+        return this
+    }
+
+    private fun loadFallbackEpisodesFromCache(): Map<String, List<XtreamEpisode>> {
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        val key = fallbackCacheKey()
+        val savedAt = prefs.getLong("${key}_at", 0L)
+        if (savedAt <= 0L || System.currentTimeMillis() - savedAt > FALLBACK_CACHE_TTL_MS) return emptyMap()
+        val raw = prefs.getString(key, "").orEmpty()
+        if (raw.isBlank()) return emptyMap()
+        val type = object : TypeToken<Map<String, List<XtreamEpisode>>>() {}.type
+        return runCatching {
+            gson.fromJson<Map<String, List<XtreamEpisode>>>(raw, type).orEmpty()
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun saveFallbackEpisodesToCache(episodes: Map<String, List<XtreamEpisode>>) {
+        if (episodes.isEmpty()) return
+        val key = fallbackCacheKey()
+        getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString(key, gson.toJson(episodes))
+            .putLong("${key}_at", System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun fallbackCacheKey(): String {
+        val titleKey = normalizeSeriesTitle(seriesName).take(80)
+        return "series_fallback_${seriesId}_$titleKey"
     }
 
     private fun xtreamM3uUrl(): String {
@@ -572,5 +649,8 @@ class SeriesDetailsActivity : AppCompatActivity() {
         private const val EXTRA_SERIES_EPISODE_TITLES = "series_episode_titles"
         private const val EXTRA_SERIES_EPISODE_KEYS = "series_episode_keys"
         private const val EXTRA_SERIES_EPISODE_INDEX = "series_episode_index"
+        private const val FALLBACK_CACHE_TTL_MS = 24L * 60L * 60L * 1000L
+        private const val PLAYLIST_CONNECT_TIMEOUT_MS = 10_000
+        private const val PLAYLIST_READ_TIMEOUT_MS = 45_000
     }
 }

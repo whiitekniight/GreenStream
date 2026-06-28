@@ -71,6 +71,20 @@
         app:layout_constraintStart_toEndOf="@id/ivSeriesCover"
         app:layout_constraintTop_toBottomOf="@id/tvSeasonsLabel" />
 
+    <TextView
+        android:id="@+id/tvSeriesStatus"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="24dp"
+        android:layout_marginTop="10dp"
+        android:textColor="@color/tivimate_text_secondary"
+        android:textSize="15sp"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@id/ivSeriesCover"
+        app:layout_constraintTop_toBottomOf="@id/rvSeasons"
+        tools:text="Loading episodes..." />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvEpisodes"
         android:layout_width="0dp"
@@ -80,6 +94,6 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@id/ivSeriesCover"
-        app:layout_constraintTop_toBottomOf="@id/rvSeasons" />
+        app:layout_constraintTop_toBottomOf="@id/tvSeriesStatus" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
