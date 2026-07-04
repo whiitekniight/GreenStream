@@ -322,7 +322,7 @@ class EpgRowAdapter(
         holder.container.removeAllViews()
         val inflater = LayoutInflater.from(holder.itemView.context)
 
-        val displayBlocks = blocksForDisplay(programs)
+        val displayBlocks = blocksForDisplay(programs).ifEmpty { holdoverBlocks(programs) }
 
         if (displayBlocks.isEmpty()) {
             addProgramBlock(inflater, holder.container, "No Information", guideWindowMinutes * 60L, channel, null)
@@ -366,6 +366,27 @@ class EpgRowAdapter(
 
         if (blocks.isNotEmpty() && cursor < windowEnd) {
             blocks.add(DisplayBlock("No Information", windowEnd - cursor, null))
+        }
+        return blocks
+    }
+
+    private fun holdoverBlocks(programs: List<XtreamEpgListing>): List<DisplayBlock> {
+        if (programs.isEmpty()) return emptyList()
+        val sorted = programs.sortedBy { it.startTimestamp }
+        val now = System.currentTimeMillis() / 1000L
+        val startIndex = sorted.indexOfFirst { it.stopTimestamp > now }.takeIf { it >= 0 } ?: 0
+        val source = sorted.drop(startIndex).ifEmpty { sorted }
+        val windowEnd = timelineStartSeconds + (guideWindowMinutes * 60L)
+        val blocks = mutableListOf<DisplayBlock>()
+        var cursor = timelineStartSeconds
+
+        for (prog in source) {
+            if (cursor >= windowEnd) break
+            val title = DataUtils.decodeBase64(prog.title).ifBlank { "No Information" }
+            val duration = (prog.stopTimestamp - prog.startTimestamp).coerceAtLeast(30L * 60L)
+            val blockEnd = min(windowEnd, cursor + duration)
+            blocks.add(DisplayBlock(title, blockEnd - cursor, prog))
+            cursor = blockEnd
         }
         return blocks
     }

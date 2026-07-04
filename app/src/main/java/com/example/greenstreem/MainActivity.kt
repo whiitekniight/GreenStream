@@ -283,6 +283,7 @@ class MainActivity : FragmentActivity() {
     private var seriesEpisodeTitles: List<String> = emptyList()
     private var seriesEpisodeResumeKeys: List<String> = emptyList()
     private var seriesEpisodeIndex = -1
+    private var nextEpisodePromptShownForKey: String? = null
     private var lastUnsupportedVodAudioSummary: String = ""
     private var pendingEpgRefresh = false
     private var pendingEpgRefreshUserRequested = false
@@ -1560,15 +1561,20 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun maybeShowNextEpisodePrompt() {
-        if (currentState != UiState.FULL_SCREEN || currentVodResumeKey == null || !hasNextSeriesEpisode()) {
+        val resumeKey = currentVodResumeKey
+        if (currentState != UiState.FULL_SCREEN || resumeKey == null || !hasNextSeriesEpisode()) {
             hideNextEpisodePrompt()
             return
         }
         val currentPlayer = player ?: return
         val duration = currentPlayer.duration.takeIf { it > 0L && it != C.TIME_UNSET } ?: return
         val remaining = duration - currentPlayer.currentPosition
-        if (remaining in 1L..NEXT_EPISODE_PROMPT_REMAINING_MS) {
-            showNextEpisodePrompt(focusStart = nextEpisodePrompt.visibility != View.VISIBLE)
+        val shouldKeepShown = nextEpisodePromptShownForKey == resumeKey &&
+            currentPlayer.playbackState != Player.STATE_ENDED
+        if (remaining <= NEXT_EPISODE_PROMPT_REMAINING_MS || shouldKeepShown) {
+            val firstShow = nextEpisodePrompt.visibility != View.VISIBLE
+            nextEpisodePromptShownForKey = resumeKey
+            showNextEpisodePrompt(focusStart = firstShow)
         } else {
             hideNextEpisodePrompt()
         }
@@ -2965,7 +2971,7 @@ class MainActivity : FragmentActivity() {
             // Paint cached EPG immediately so rows fill instantly while network refresh runs.
             sortedChannels.forEach { ch ->
                 val cached = epgCacheByStreamId[ch.id.toInt()]
-                if (cached.hasCurrentGuideWindowListings()) {
+                if (!cached.isNullOrEmpty()) {
                     setEpgDataBuffered(ch.id.toInt(), cached.orEmpty())
                 }
             }
@@ -3037,7 +3043,8 @@ class MainActivity : FragmentActivity() {
 
     private fun markEpgRefreshFinished() {
         val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean(KEY_EPG_UPDATE_IN_PROGRESS, false)) return
+        val wasUpdating = prefs.getBoolean(KEY_EPG_UPDATE_IN_PROGRESS, false)
+        if (!wasUpdating) return
         prefs.edit()
             .putBoolean(KEY_EPG_UPDATE_IN_PROGRESS, false)
             .remove(KEY_EPG_UPDATE_STARTED_AT)
@@ -3171,8 +3178,10 @@ class MainActivity : FragmentActivity() {
         val streamId = channel.id.toInt()
         if (!forceRefresh) {
             val cached = epgCacheByStreamId[streamId]
+            if (!cached.isNullOrEmpty()) {
+                setEpgDataBuffered(streamId, cached)
+            }
             if (cached.hasCurrentGuideWindowListings()) {
-                epgAdapter.setEpgData(streamId, cached.orEmpty())
                 return
             }
         }
@@ -3240,8 +3249,10 @@ class MainActivity : FragmentActivity() {
             if (epgInFlightStreamIds.contains(streamId)) continue
             if (!forceRefresh) {
                 val cached = epgCacheByStreamId[streamId]
+                if (!cached.isNullOrEmpty()) {
+                    setEpgDataBuffered(streamId, cached)
+                }
                 if (cached.hasCurrentGuideWindowListings()) {
-                    setEpgDataBuffered(streamId, cached.orEmpty())
                     continue
                 }
             }
@@ -3250,17 +3261,13 @@ class MainActivity : FragmentActivity() {
                 epgActiveFetchCount++
                 lifecycleScope.launch {
                     val secondary = applySecondaryEpgFallback(channel, emptyList())
-                    if (secondary.isNotEmpty()) {
-                        cacheEpg(streamId, secondary)
-                        setEpgDataBuffered(streamId, secondary)
-                    }
-                    epgInFlightStreamIds.remove(streamId)
-                    epgActiveFetchCount = (epgActiveFetchCount - 1).coerceAtLeast(0)
-                    processEpgFetchQueue()
+                    keepExistingEpgWhenRefreshIsEmpty(streamId, secondary)
+                    finishEpgFetch(streamId)
                 }
                 continue
             }
             val service = XtreamManager.getService() ?: run {
+                keepExistingEpgWhenRefreshIsEmpty(streamId, emptyList())
                 epgInFlightStreamIds.remove(streamId)
                 continue
             }
@@ -3275,27 +3282,24 @@ class MainActivity : FragmentActivity() {
             call.enqueue(object : Callback<XtreamEpgResponse> {
                 override fun onResponse(call: Call<XtreamEpgResponse>, response: Response<XtreamEpgResponse>) {
                     pendingEpgCalls.remove(call)
-                    epgInFlightStreamIds.remove(streamId)
-                    epgActiveFetchCount = (epgActiveFetchCount - 1).coerceAtLeast(0)
-                    processEpgFetchQueue()
-                    if (!response.isSuccessful) return
+                    if (!response.isSuccessful) {
+                        keepExistingEpgWhenRefreshIsEmpty(streamId, emptyList())
+                        finishEpgFetch(streamId)
+                        return
+                    }
                     val primary = response.body()?.listings.orEmpty()
                     lifecycleScope.launch {
                         val merged = applySecondaryEpgFallback(channel, primary)
                         keepExistingEpgWhenRefreshIsEmpty(streamId, merged)
+                        finishEpgFetch(streamId)
                     }
                 }
                 override fun onFailure(call: Call<XtreamEpgResponse>, t: Throwable) {
                     pendingEpgCalls.remove(call)
-                    epgInFlightStreamIds.remove(streamId)
-                    epgActiveFetchCount = (epgActiveFetchCount - 1).coerceAtLeast(0)
-                    processEpgFetchQueue()
                     lifecycleScope.launch {
                         val merged = applySecondaryEpgFallback(channel, emptyList())
-                        if (merged.isNotEmpty()) {
-                            cacheEpg(streamId, merged)
-                            setEpgDataBuffered(streamId, merged)
-                        }
+                        keepExistingEpgWhenRefreshIsEmpty(streamId, merged)
+                        finishEpgFetch(streamId)
                     }
                 }
             })
@@ -3303,6 +3307,12 @@ class MainActivity : FragmentActivity() {
         if (epgFetchQueue.isEmpty() && epgActiveFetchCount == 0) {
             markEpgRefreshFinished()
         }
+    }
+
+    private fun finishEpgFetch(streamId: Int) {
+        epgInFlightStreamIds.remove(streamId)
+        epgActiveFetchCount = (epgActiveFetchCount - 1).coerceAtLeast(0)
+        processEpgFetchQueue()
     }
 
     private fun shouldUseOnlySecondaryEpg(): Boolean {
@@ -3333,8 +3343,8 @@ class MainActivity : FragmentActivity() {
             return
         }
         val existing = epgCacheByStreamId[streamId]
-        if (existing.hasCurrentGuideWindowListings()) {
-            setEpgDataBuffered(streamId, existing.orEmpty())
+        if (!existing.isNullOrEmpty()) {
+            setEpgDataBuffered(streamId, existing)
         }
     }
 
@@ -3388,7 +3398,7 @@ class MainActivity : FragmentActivity() {
             hydrateEpgCacheFromDisk(sortedChannels)
             sortedChannels.forEach { ch ->
                 val cached = epgCacheByStreamId[ch.id.toInt()]
-                if (cached.hasCurrentGuideWindowListings()) {
+                if (!cached.isNullOrEmpty()) {
                     setEpgDataBuffered(ch.id.toInt(), cached.orEmpty())
                 }
             }
@@ -3478,10 +3488,12 @@ class MainActivity : FragmentActivity() {
         entries.forEach { entry ->
             if (entry.updatedAtMs < cutoff) return@forEach
             val parsed = parseEpgListingsJson(entry.listingsJson)
-            if (parsed.hasCurrentGuideWindowListings()) {
-                hydratedIds.add(entry.streamId)
+            if (parsed.isNotEmpty()) {
                 epgCacheByStreamId[entry.streamId] = parsed
                 setEpgDataBuffered(entry.streamId, parsed)
+            }
+            if (parsed.hasCurrentGuideWindowListings()) {
+                hydratedIds.add(entry.streamId)
             }
         }
         hydrateMissingRowsFromSecondaryIndex(channels, hydratedIds)
@@ -4665,6 +4677,7 @@ class MainActivity : FragmentActivity() {
 
     private fun startVodPlayback(url: String, title: String, resumeKey: String, startPositionMs: Long) {
         saveVodResumeProgress()
+        nextEpisodePromptShownForKey = null
         hideNextEpisodePrompt()
         currentChannel = null
         currentVodResumeKey = resumeKey
@@ -4698,8 +4711,8 @@ class MainActivity : FragmentActivity() {
         vodResumeRunnable = object : Runnable {
             override fun run() {
                 if (currentVodResumeKey != null) {
-                    saveVodResumeProgress()
                     maybeShowNextEpisodePrompt()
+                    saveVodResumeProgress()
                     vodResumeHandler.postDelayed(this, VOD_RESUME_TICK_MS)
                 }
             }

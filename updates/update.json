@@ -1,7 +1,7 @@
 {
-  "versionCode": 53,
-  "versionName": "1.9.17",
+  "versionCode": 54,
+  "versionName": "1.9.18",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Improves VOD series loading, fixes missing episodes on some providers, hides unnecessary Season 0, and shows/caches episode results faster."
+  "notes": "Restores the next-episode prompt near the end of series playback and keeps cached guide data visible while EPG refreshes."
 }
 

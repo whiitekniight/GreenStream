@@ -24,10 +24,10 @@ object SecondaryEpgProvider {
     private const val KEY_XMLTV_INDEX_URL = "xmltv_index_url"
     private const val KEY_XMLTV_INDEXED_AT = "xmltv_indexed_at"
     private const val KEY_XMLTV_INDEX_VERSION = "xmltv_index_version"
-    private const val XMLTV_INDEX_VERSION = 4
-    private const val CACHE_MAX_AGE_MS = 30 * 60 * 60 * 1000L
-    private const val XMLTV_KEEP_PAST_SECONDS = 6 * 60 * 60L
-    private const val XMLTV_KEEP_FUTURE_SECONDS = 72 * 60 * 60L
+    private const val XMLTV_INDEX_VERSION = 5
+    private const val CACHE_MAX_AGE_MS = 8L * 24L * 60L * 60L * 1000L
+    private const val XMLTV_KEEP_PAST_SECONDS = 24 * 60 * 60L
+    private const val XMLTV_KEEP_FUTURE_SECONDS = 7 * 24 * 60 * 60L
     private const val XMLTV_QUERY_PAST_SECONDS = 30 * 60L
     private const val XMLTV_QUERY_FUTURE_SECONDS = 8 * 60 * 60L
 
