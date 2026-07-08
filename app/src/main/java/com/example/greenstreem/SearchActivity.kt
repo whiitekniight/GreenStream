@@ -548,6 +548,7 @@ class SearchActivity : AppCompatActivity() {
         val intent = Intent(this, MainActivity::class.java)
         intent.putExtra("play_url", url)
         intent.putExtra("media_title", movie.name)
+        intent.putExtra("resume_key", "movie_${movie.streamId}")
         intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         startActivity(intent)
         finish()
@@ -822,14 +823,34 @@ class SearchActivity : AppCompatActivity() {
 
         private fun verticalFocusablePosition(position: Int, down: Boolean): Int {
             if (position !in items.indices) return RecyclerView.NO_POSITION
+            if (down && items[position] is XtreamVodStream) {
+                val firstSeries = ((position + 1)..items.lastIndex)
+                    .firstOrNull { items[it] is XtreamSeries }
+                if (firstSeries != null) return firstSeries
+            }
             val step = if (isPosterItem(items[position])) SEARCH_GRID_SPAN_COUNT else 1
             val firstCandidate = position + if (down) step else -step
+            val boundaryRange = if (down) {
+                (position + 1)..firstCandidate.coerceAtMost(items.lastIndex)
+            } else {
+                (position - 1) downTo firstCandidate.coerceAtLeast(0)
+            }
+            val crossesSection = boundaryRange.any { it in items.indices && items[it] is String }
+            if (crossesSection) {
+                return boundaryRange.firstOrNull { it in items.indices && items[it] !is String }
+                    ?: RecyclerView.NO_POSITION
+            }
             val range = if (down) {
                 firstCandidate..items.lastIndex
             } else {
                 firstCandidate downTo 0
             }
             return range.firstOrNull { it in items.indices && items[it] !is String }
+                ?: if (down) {
+                    ((position + 1)..items.lastIndex).firstOrNull { items[it] !is String }
+                } else {
+                    ((position - 1) downTo 0).firstOrNull { items[it] !is String }
+                }
                 ?: RecyclerView.NO_POSITION
         }
 

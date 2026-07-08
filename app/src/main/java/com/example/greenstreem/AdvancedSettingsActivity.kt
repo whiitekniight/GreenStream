@@ -132,7 +132,16 @@ class AdvancedSettingsActivity : AppCompatActivity() {
                 Toast.makeText(this, "Recent channels cleared", Toast.LENGTH_SHORT).show()
             }
             "clear_history" -> {
-                prefs.edit().remove("last_channel_id").remove("last_category_id").apply()
+                prefs.edit()
+                    .remove("last_channel_id")
+                    .remove("last_category_id")
+                    .remove("continue_watching_items")
+                    .remove("last_playback_type")
+                    .remove("last_playback_title")
+                    .remove("last_playback_url")
+                    .remove("last_playback_resume_key")
+                    .remove("last_playback_channel_id")
+                    .apply()
                 Toast.makeText(this, "Playback history cleared", Toast.LENGTH_SHORT).show()
             }
             "secondary_epg_url" -> showSecondaryEpgUrlDialog()

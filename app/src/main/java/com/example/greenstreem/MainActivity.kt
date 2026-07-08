@@ -576,6 +576,7 @@ class MainActivity : FragmentActivity() {
         startLivePlaybackWatchdog()
         PlayBillingManager.start(this)
         setupMovieControls()
+        setupPhoneMovieTouchControls()
         setupNextEpisodePrompt()
         setupDynamicTimeRuler()
         setupNavRail()
@@ -1523,6 +1524,30 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private fun setupPhoneMovieTouchControls() {
+        playerView.isClickable = true
+        playerView.setOnClickListener {
+            handlePhoneMovieTap()
+        }
+        playerContainer.isClickable = true
+        playerContainer.setOnClickListener {
+            handlePhoneMovieTap()
+        }
+    }
+
+    private fun handlePhoneMovieTap(): Boolean {
+        if (isTvUiMode()) return false
+        if (currentState != UiState.FULL_SCREEN || currentMode == ContentMode.LIVE_TV || currentVodResumeKey == null) {
+            return false
+        }
+        if (movieControlsBar.visibility == View.VISIBLE && movieControlsButtons.visibility != View.VISIBLE) {
+            toggleMoviePlayPause()
+        } else {
+            showMovieControls(focusControls = false, showExtras = false)
+        }
+        return true
+    }
+
     private fun setupNextEpisodePrompt() {
         btnNextEpisodeStart.setOnClickListener {
             playNextSeriesEpisode()
@@ -2064,6 +2089,7 @@ class MainActivity : FragmentActivity() {
         }
         saveCurrentMode(mode)
         updateLibraryHeaderChrome()
+        refreshRecentChannelsRow()
         fetchCategories(autoSelectFirst = true)
         updateUiState(UiState.CATEGORIES)
         if (mode == ContentMode.LIVE_TV) {
@@ -4675,7 +4701,12 @@ class MainActivity : FragmentActivity() {
             .show()
     }
 
-    private fun startVodPlayback(url: String, title: String, resumeKey: String, startPositionMs: Long) {
+    private fun startVodPlayback(
+        url: String,
+        title: String,
+        resumeKey: String,
+        startPositionMs: Long
+    ) {
         saveVodResumeProgress()
         nextEpisodePromptShownForKey = null
         hideNextEpisodePrompt()
@@ -4685,8 +4716,9 @@ class MainActivity : FragmentActivity() {
         currentVodUrl = url
         currentVodTitle = title
         currentLivePlaybackUrl = null
+        val playbackType = if (resumeKey.startsWith("series_")) LAST_PLAYBACK_SERIES else LAST_PLAYBACK_MOVIE
         saveLastPlayback(
-            type = if (resumeKey.startsWith("series_")) LAST_PLAYBACK_SERIES else LAST_PLAYBACK_MOVIE,
+            type = playbackType,
             title = title,
             url = url,
             resumeKey = resumeKey,
@@ -6274,7 +6306,6 @@ class MainActivity : FragmentActivity() {
             saveLastCategoryIdForMode(ContentMode.LIVE_TV, resolvedCategoryId)
         }
         updateCurrentLiveChannelIndex(normalizedChannel.id)
-        addToRecentChannels(normalizedChannel.id)
         refreshRecentChannelsRow()
         val prefsEdit = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
             .edit()
@@ -6865,13 +6896,13 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun refreshRecentChannelsRow() {
-        val recent = buildRecentChannels()
-        recentChannelAdapter.submitList(recent)
+        recentChannelAdapter.submitList(emptyList())
         updateRecentChannelsVisibility()
     }
 
     private fun updateRecentChannelsVisibility() {
-        rvRecentChannels.visibility = View.GONE
+        val shouldShow = currentState != UiState.FULL_SCREEN && recentChannelAdapter.itemCount > 0
+        rvRecentChannels.visibility = if (shouldShow) View.VISIBLE else View.GONE
     }
 
     private fun updateCurrentLiveChannelIndex(channelId: Long) {

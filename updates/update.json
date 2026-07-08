@@ -1,7 +1,7 @@
 {
-  "versionCode": 54,
-  "versionName": "1.9.18",
+  "versionCode": 55,
+  "versionName": "1.9.19",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Restores the next-episode prompt near the end of series playback and keeps cached guide data visible while EPG refreshes."
+  "notes": "Improves phone movie playback controls and search navigation, while removing recent/continue-watching rails from the main browsing screens."
 }
 
