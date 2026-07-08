@@ -1525,6 +1525,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun setupPhoneMovieTouchControls() {
+        if (isTvUiMode()) return
         playerView.isClickable = true
         playerView.setOnClickListener {
             handlePhoneMovieTap()
@@ -5028,6 +5029,7 @@ class MainActivity : FragmentActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN) {
+            if (handleFullscreenMovieControlsKey(event.keyCode)) return true
             when (event.keyCode) {
                 KeyEvent.KEYCODE_MEDIA_REWIND -> {
                     if (seekMovieFromRemote(-30_000L, allowWhenControlsVisible = true)) return true
@@ -5044,6 +5046,28 @@ class MainActivity : FragmentActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    private fun handleFullscreenMovieControlsKey(keyCode: Int): Boolean {
+        if (currentState != UiState.FULL_SCREEN || movieControlsButtons.visibility == View.VISIBLE) return false
+        return when (keyCode) {
+            KeyEvent.KEYCODE_MENU,
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER -> {
+                if (currentMode == ContentMode.LIVE_TV || currentVodResumeKey != null) {
+                    showPlaybackExtras()
+                } else {
+                    updateUiState(UiState.EPG_GRID)
+                }
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                movieControlsBar.visibility == View.VISIBLE &&
+                    movieControlsButtons.visibility != View.VISIBLE &&
+                    showPlaybackExtras()
+            }
+            else -> false
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
