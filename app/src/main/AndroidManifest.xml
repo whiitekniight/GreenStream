@@ -14,6 +14,7 @@
         android:required="false" />
 
     <application
+        android:name=".GreenStreemApplication"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"
@@ -33,108 +34,108 @@
             android:name=".SetupActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".XtreamLoginActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".M3uLoginActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".SettingsActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".PlaylistSettingsActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".PlaylistManagerActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".TvSettingsActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".PlaybackSettingsActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".DownloadSettingsActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".AdvancedSettingsActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
         <activity
             android:name=".BackupRestoreActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".PlaylistProfileSettingsActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".ChannelSortingModeActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
         <activity
             android:name=".ManualChannelSortingActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".ManageGroupsActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".GroupSortingActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".SearchActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:theme="@style/Theme.GreenStreem.NoActionBar"
             android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".SeriesDetailsActivity"
             android:exported="false"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+            android:theme="@style/Theme.GreenStreem.NoActionBar" />
 
         <activity
             android:name=".EpgActivity"
@@ -146,7 +147,7 @@
             android:exported="true"
             android:banner="@drawable/tv_banner"
             android:screenOrientation="landscape"
-            android:theme="@style/Theme.AppCompat.NoActionBar">
+            android:theme="@style/Theme.GreenStreem.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
