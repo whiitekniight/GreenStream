@@ -1,7 +1,7 @@
 {
-  "versionCode": 57,
-  "versionName": "1.9.21",
+  "versionCode": 58,
+  "versionName": "1.9.22",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Makes GreenStreem run true full screen on phones and tablets by hiding the status and navigation bars across the app."
+  "notes": "Hotfixes phone and tablet startup while keeping full-screen system bars hidden across the app."
 }
 
