@@ -33,7 +33,11 @@ import kotlinx.coroutines.withContext
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.net.URL
+import java.net.URLEncoder
+import java.util.Locale
 
 class SearchActivity : AppCompatActivity() {
 
@@ -46,6 +50,10 @@ class SearchActivity : AppCompatActivity() {
     private var allMovies: List<XtreamVodStream> = emptyList()
     private var allSeries: List<XtreamSeries> = emptyList()
     private var allPrograms: List<ProgramSearchResult> = emptyList()
+    private var m3uMovieSearchQuery: String = ""
+    private var m3uLibrarySearchInFlight = false
+    private var m3uMovieSearchResults: List<XtreamVodStream> = emptyList()
+    private var m3uSeriesSearchResults: List<XtreamSeries> = emptyList()
     private var recentQueries: MutableList<String> = mutableListOf()
     private val searchHandler = Handler(Looper.getMainLooper())
     private var searchRunnable: Runnable? = null
@@ -57,6 +65,11 @@ class SearchActivity : AppCompatActivity() {
     private data class ProgramSearchResult(
         val channel: Channel,
         val title: String
+    )
+
+    private data class M3uLibrarySearchResults(
+        val movies: List<XtreamVodStream>,
+        val series: List<XtreamSeries>
     )
 
     private val searchAdapter = GlobalSearchAdapter(
@@ -370,10 +383,29 @@ class SearchActivity : AppCompatActivity() {
             .filter { it.name.contains(normalized, ignoreCase = true) }
             .take(120)
             .toList()
+        if (normalized != m3uMovieSearchQuery && !m3uLibrarySearchInFlight) {
+            searchM3uLibraryForQuery(normalized)
+        }
+        val filteredM3uMovies = if (normalized == m3uMovieSearchQuery) {
+            m3uMovieSearchResults.asSequence()
+                .filter { it.name.contains(normalized, ignoreCase = true) }
+                .take(120)
+                .toList()
+        } else {
+            emptyList()
+        }
         val filteredSeries = allSeries.asSequence()
             .filter { it.name.contains(normalized, ignoreCase = true) }
             .take(120)
             .toList()
+        val filteredM3uSeries = if (normalized == m3uMovieSearchQuery) {
+            m3uSeriesSearchResults.asSequence()
+                .filter { it.name.contains(normalized, ignoreCase = true) }
+                .take(120)
+                .toList()
+        } else {
+            emptyList()
+        }
         val filteredPrograms = allPrograms.asSequence()
             .filter {
                 it.title.contains(normalized, ignoreCase = true) ||
@@ -382,13 +414,185 @@ class SearchActivity : AppCompatActivity() {
             .take(120)
             .toList()
 
-        searchAdapter.setResults(filteredChannels, filteredMovies, filteredSeries, filteredPrograms)
+        searchAdapter.setResults(
+            filteredChannels,
+            (filteredMovies + filteredM3uMovies).distinctBy { it.streamId }.take(120),
+            (filteredSeries + filteredM3uSeries).distinctBy { it.seriesId }.take(120),
+            filteredPrograms
+        )
         hasActiveSearch = true
         if (saveQuery) saveRecentQuery(normalized)
         if (focusedPosition != RecyclerView.NO_POSITION) {
             focusSearchItemAtOrAfter(focusedPosition)
         }
     }
+
+    private fun searchM3uLibraryForQuery(query: String) {
+        val playlistUrl = rawM3uSearchUrl() ?: return
+        m3uMovieSearchQuery = query
+        m3uLibrarySearchInFlight = true
+        lifecycleScope.launch {
+            val results = withContext(Dispatchers.IO) {
+                scanM3uLibrary(playlistUrl, query)
+            }
+            if (m3uMovieSearchQuery == query) {
+                m3uMovieSearchResults = results.movies
+                m3uSeriesSearchResults = results.series
+                m3uLibrarySearchInFlight = false
+                performSearch(etSearch.text?.toString().orEmpty(), saveQuery = false)
+            } else {
+                m3uLibrarySearchInFlight = false
+            }
+        }
+    }
+
+    private fun rawM3uSearchUrl(): String? {
+        val playlistType = prefs.getString(KEY_PLAYLIST_TYPE, PLAYLIST_TYPE_XTREAM)
+        if (playlistType == PLAYLIST_TYPE_M3U) {
+            return prefs.getString(KEY_M3U_URL, "").orEmpty().takeIf { it.isNotBlank() }
+        }
+        val baseUrl = XtreamManager.baseUrl.takeIf { it.isNotBlank() } ?: return null
+        val user = XtreamManager.username.takeIf { it.isNotBlank() } ?: return null
+        val pass = XtreamManager.password.takeIf { it.isNotBlank() } ?: return null
+        val query = "username=${user.urlEncode()}&password=${pass.urlEncode()}&type=m3u_plus&output=ts"
+        return "$baseUrl/get.php?$query"
+    }
+
+    private fun scanM3uLibrary(playlistUrl: String, query: String): M3uLibrarySearchResults {
+        val normalizedQuery = query.lowercase(Locale.getDefault())
+        val movieResults = ArrayList<XtreamVodStream>()
+        val seriesByTitle = linkedMapOf<String, XtreamSeries>()
+        runCatching {
+            URL(playlistUrl).openStream().use { stream ->
+                BufferedReader(InputStreamReader(stream)).useLines { lines ->
+                    var pendingName = ""
+                    var pendingLogo = ""
+                    var pendingGroup = ""
+                    for (line in lines) {
+                        when {
+                            line.startsWith("#EXTINF:", ignoreCase = true) -> {
+                                pendingName = line.substringAfterLast(',', "").trim()
+                                pendingLogo = parseM3uAttribute(line, "tvg-logo")
+                                pendingGroup = parseM3uAttribute(line, "group-title")
+                            }
+                            isM3uStreamUrl(line) -> {
+                                val url = line.trim()
+                                val matchesQuery = pendingName.contains(normalizedQuery, ignoreCase = true)
+                                if (matchesQuery && isM3uMovieEntry(pendingName, pendingGroup, url)) {
+                                    movieResults.add(
+                                        XtreamVodStream(
+                                            num = movieResults.size + 1,
+                                            name = pendingName,
+                                            streamId = stableIdForM3uUrl(url),
+                                            streamIcon = pendingLogo,
+                                            categoryId = pendingGroup.ifBlank { "Movies" },
+                                            containerExtension = url.substringBefore('?').substringAfterLast('.', "").takeIf { it.length in 2..5 },
+                                            directUrl = url
+                                        )
+                                    )
+                                } else if (matchesQuery && isM3uSeriesEntry(pendingName, pendingGroup, url)) {
+                                    val seriesTitle = m3uSeriesTitle(pendingName)
+                                    val key = normalizedSeriesKey(seriesTitle)
+                                    if (key.isNotBlank() && key !in seriesByTitle) {
+                                        val id = -stableIdForM3uUrl(key)
+                                        seriesByTitle[key] = XtreamSeries(
+                                            num = seriesByTitle.size + 1,
+                                            name = seriesTitle,
+                                            seriesId = id,
+                                            cover = pendingLogo,
+                                            categoryId = pendingGroup.ifBlank { "Series" }
+                                        )
+                                    }
+                                }
+                                if (movieResults.size >= MAX_M3U_SEARCH_RESULTS &&
+                                    seriesByTitle.size >= MAX_M3U_SEARCH_RESULTS
+                                ) return@useLines
+                                pendingName = ""
+                                pendingLogo = ""
+                                pendingGroup = ""
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return M3uLibrarySearchResults(
+            movies = movieResults.distinctBy { it.directUrl ?: it.streamId },
+            series = seriesByTitle.values.toList()
+        )
+    }
+
+    private fun parseM3uAttribute(line: String, attribute: String): String {
+        val key = "$attribute=\""
+        val start = line.indexOf(key)
+        if (start == -1) return ""
+        val valueStart = start + key.length
+        val end = line.indexOf("\"", valueStart)
+        return if (end == -1) "" else line.substring(valueStart, end)
+    }
+
+    private fun isM3uStreamUrl(line: String): Boolean {
+        val value = line.trim().lowercase(Locale.getDefault())
+        return value.startsWith("http://") || value.startsWith("https://") || value.startsWith("rtmp://") || value.startsWith("rtsp://")
+    }
+
+    private fun isM3uMovieEntry(name: String, group: String, url: String): Boolean {
+        val lowerUrl = url.lowercase(Locale.getDefault())
+        val lowerGroup = group.lowercase(Locale.getDefault())
+        val lowerName = name.lowercase(Locale.getDefault())
+        val extension = lowerUrl.substringBefore('?').substringAfterLast('.', "")
+        return "/movie/" in lowerUrl ||
+            lowerGroup.startsWith("movie") ||
+            lowerGroup.startsWith("vod") ||
+            " movie" in lowerGroup ||
+            "movies" in lowerGroup ||
+            "vod" in lowerGroup ||
+            "film" in lowerGroup ||
+            "cinema" in lowerGroup ||
+            Regex("""\b(19|20)\d{2}\b""").containsMatchIn(lowerName) &&
+                extension in setOf("mp4", "mkv", "avi", "mov", "m4v")
+    }
+
+    private fun isM3uSeriesEntry(name: String, group: String, url: String): Boolean {
+        val lowerUrl = url.lowercase(Locale.getDefault())
+        val lowerGroup = group.lowercase(Locale.getDefault())
+        val lowerName = name.lowercase(Locale.getDefault())
+        val haystack = "$lowerGroup $lowerName"
+        return "/series/" in lowerUrl ||
+            lowerGroup.startsWith("series") ||
+            " series" in lowerGroup ||
+            "tv series" in lowerGroup ||
+            "tv show" in lowerGroup ||
+            "shows" in lowerGroup ||
+            "boxset" in lowerGroup ||
+            "season" in lowerGroup ||
+            Regex("""\bs\s*\d{1,3}\s*e\s*\d{1,3}\b""", RegexOption.IGNORE_CASE).containsMatchIn(haystack) ||
+            Regex("""\bseason\s*\d{1,3}.*?\bepisode\s*\d{1,3}\b""", RegexOption.IGNORE_CASE).containsMatchIn(haystack) ||
+            Regex("""\b\d{1,3}x\d{1,3}\b""").containsMatchIn(haystack)
+    }
+
+    private fun m3uSeriesTitle(rawName: String): String {
+        return rawName
+            .replace(Regex("""(?i)\s*[-._ ]*\bS\s*\d{1,3}\s*E\s*\d{1,3}\b.*$"""), "")
+            .replace(Regex("""(?i)\s*[-._ ]*\bSeason\s*\d{1,3}.*?\bEpisode\s*\d{1,3}\b.*$"""), "")
+            .replace(Regex("""(?i)\s*[-._ ]*\b\d{1,3}x\d{1,3}\b.*$"""), "")
+            .trim()
+            .ifBlank { rawName.trim() }
+    }
+
+    private fun normalizedSeriesKey(value: String): String {
+        return value
+            .lowercase(Locale.getDefault())
+            .replace("&", "and")
+            .replace(Regex("""[^a-z0-9]+"""), " ")
+            .trim()
+    }
+
+    private fun stableIdForM3uUrl(url: String): Int {
+        return ((url.hashCode().toLong() and 0x7fffffffL) + 1L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    private fun String.urlEncode(): String = URLEncoder.encode(this, "UTF-8")
 
     private fun currentSearchFocusPosition(): Int {
         val focused = currentFocus ?: return RecyclerView.NO_POSITION
@@ -1075,5 +1279,10 @@ class SearchActivity : AppCompatActivity() {
         private const val MOVIE_PLAYER_BUILT_IN = "built_in"
         private const val MOVIE_PLAYER_EXTERNAL = "external"
         private const val MAX_RECENT_SEARCHES = 12
+        private const val KEY_PLAYLIST_TYPE = "playlist_type"
+        private const val PLAYLIST_TYPE_XTREAM = "xtream"
+        private const val PLAYLIST_TYPE_M3U = "m3u"
+        private const val KEY_M3U_URL = "m3u_url"
+        private const val MAX_M3U_SEARCH_RESULTS = 120
     }
 }

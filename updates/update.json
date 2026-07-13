@@ -1,7 +1,7 @@
 {
-  "versionCode": 58,
-  "versionName": "1.9.22",
+  "versionCode": 59,
+  "versionName": "1.9.23",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Hotfixes phone and tablet startup while keeping full-screen system bars hidden across the app."
+  "notes": "Adds per-user full-library movie and series search, keeps phone/tablet system controls visible for 10 seconds before fullscreen hide, and preserves Android TV fullscreen behavior."
 }
 

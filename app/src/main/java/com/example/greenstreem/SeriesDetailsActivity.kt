@@ -75,6 +75,25 @@ class SeriesDetailsActivity : AppCompatActivity() {
     }
 
     private fun fetchSeriesInfo() {
+        if (seriesId < 0) {
+            showCachedFallbackEpisodesIfAvailable()
+            lifecycleScope.launch {
+                showSeriesStatus("Loading episodes from playlist...")
+                val fallbackEpisodes = withContext(Dispatchers.IO) { loadSeriesEpisodesFromM3u(seriesName) }
+                tvPlot.text = "M3U series"
+                allEpisodes = fallbackEpisodes
+                if (fallbackEpisodes.isNotEmpty()) {
+                    saveFallbackEpisodesToCache(fallbackEpisodes)
+                }
+                if (showSeriesEpisodes(emptyList(), allEpisodes)) {
+                    hideSeriesStatus()
+                } else {
+                    showSeriesStatus("No episodes found")
+                    Toast.makeText(this@SeriesDetailsActivity, "No episodes found for this series", Toast.LENGTH_SHORT).show()
+                }
+            }
+            return
+        }
         val service = XtreamManager.getService() ?: return
         showCachedFallbackEpisodesIfAvailable()
         service.getSeriesInfoRaw(XtreamManager.username, XtreamManager.password, seriesId)
@@ -254,9 +273,10 @@ class SeriesDetailsActivity : AppCompatActivity() {
     }
 
     private fun loadSeriesEpisodesFromM3u(showName: String): Map<String, List<XtreamEpisode>> {
-        if (showName.isBlank() || XtreamManager.baseUrl.isBlank()) return emptyMap()
+        val playlistUrl = seriesFallbackM3uUrl()
+        if (showName.isBlank() || playlistUrl.isBlank()) return emptyMap()
         return runCatching {
-            URL(xtreamM3uUrl()).openConnection().applyPlaylistTimeouts().getInputStream().use { stream ->
+            URL(playlistUrl).openConnection().applyPlaylistTimeouts().getInputStream().use { stream ->
                 val target = normalizeSeriesTitle(showName)
                 val grouped = linkedMapOf<String, MutableList<XtreamEpisode>>()
                 val reader = BufferedReader(InputStreamReader(stream))
@@ -327,6 +347,14 @@ class SeriesDetailsActivity : AppCompatActivity() {
         val user = URLEncoder.encode(XtreamManager.username, "UTF-8")
         val pass = URLEncoder.encode(XtreamManager.password, "UTF-8")
         return "${XtreamManager.baseUrl}/get.php?username=$user&password=$pass&type=m3u_plus&output=ts"
+    }
+
+    private fun seriesFallbackM3uUrl(): String {
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        if (prefs.getString(KEY_PLAYLIST_TYPE, PLAYLIST_TYPE_XTREAM) == PLAYLIST_TYPE_M3U) {
+            return prefs.getString(KEY_M3U_URL, "").orEmpty()
+        }
+        return if (XtreamManager.baseUrl.isBlank()) "" else xtreamM3uUrl()
     }
 
     private fun fallbackEpisodeFromM3uEntry(name: String, streamUrl: String, targetTitle: String): XtreamEpisode? {
@@ -652,5 +680,9 @@ class SeriesDetailsActivity : AppCompatActivity() {
         private const val FALLBACK_CACHE_TTL_MS = 24L * 60L * 60L * 1000L
         private const val PLAYLIST_CONNECT_TIMEOUT_MS = 10_000
         private const val PLAYLIST_READ_TIMEOUT_MS = 45_000
+        private const val KEY_PLAYLIST_TYPE = "playlist_type"
+        private const val PLAYLIST_TYPE_XTREAM = "xtream"
+        private const val PLAYLIST_TYPE_M3U = "m3u"
+        private const val KEY_M3U_URL = "m3u_url"
     }
 }
