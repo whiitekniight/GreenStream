@@ -1,7 +1,7 @@
 {
-  "versionCode": 65,
-  "versionName": "1.9.29",
-  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.29",
-  "notes": "Shows provider guide data immediately after restore and fills custom XMLTV guide rows progressively while the index rebuilds."
+  "versionCode": 66,
+  "versionName": "1.9.30",
+  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.30",
+  "notes": "Loads the complete provider EPG without allowing additional XMLTV rebuilding to block the remaining channel rows."
 }
 

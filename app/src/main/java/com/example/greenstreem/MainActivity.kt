@@ -3312,38 +3312,85 @@ class MainActivity : FragmentActivity() {
                 override fun onResponse(call: Call<XtreamEpgResponse>, response: Response<XtreamEpgResponse>) {
                     pendingEpgCalls.remove(call)
                     if (!response.isSuccessful) {
-                        keepExistingEpgWhenRefreshIsEmpty(streamId, emptyList())
-                        finishEpgFetch(streamId)
+                        requestFullProviderEpg(channel, streamId)
                         return
                     }
                     val primary = response.body()?.listings.orEmpty()
-                    // Never hold valid provider guide data behind a custom XMLTV download.
-                    // Restores intentionally clear the XMLTV index, and rebuilding a large source
-                    // can take long enough to leave every guide row showing No Information.
-                    if (primary.isNotEmpty()) {
-                        keepExistingEpgWhenRefreshIsEmpty(streamId, primary)
+                    if (primary.isEmpty()) {
+                        requestFullProviderEpg(channel, streamId)
+                        return
                     }
-                    lifecycleScope.launch {
-                        val merged = applySecondaryEpgFallback(channel, primary)
-                        keepExistingEpgWhenRefreshIsEmpty(streamId, merged)
-                        finishEpgFetch(streamId)
-                    }
+                    applyProviderEpgResult(channel, streamId, primary)
                 }
                 override fun onFailure(call: Call<XtreamEpgResponse>, t: Throwable) {
                     pendingEpgCalls.remove(call)
-                    if (!call.isCanceled) {
-                        Log.w(TAG, "EPG provider parse/request failed stream=$streamId: ${t.javaClass.simpleName}: ${t.message}")
-                    }
-                    lifecycleScope.launch {
-                        val merged = applySecondaryEpgFallback(channel, emptyList())
-                        keepExistingEpgWhenRefreshIsEmpty(streamId, merged)
+                    if (call.isCanceled) {
                         finishEpgFetch(streamId)
+                        return
                     }
+                    Log.w(TAG, "EPG provider parse/request failed stream=$streamId: ${t.javaClass.simpleName}: ${t.message}")
+                    requestFullProviderEpg(channel, streamId)
                 }
             })
         }
         if (epgFetchQueue.isEmpty() && epgActiveFetchCount == 0) {
             markEpgRefreshFinished()
+        }
+    }
+
+    private fun requestFullProviderEpg(channel: Channel, streamId: Int) {
+        val service = XtreamManager.getService() ?: run {
+            applyProviderEpgResult(channel, streamId, emptyList())
+            return
+        }
+        val fallbackCall = service.getFullEpgForStream(
+            XtreamManager.username,
+            XtreamManager.password,
+            streamId
+        )
+        pendingEpgCalls.add(fallbackCall)
+        fallbackCall.enqueue(object : Callback<XtreamEpgResponse> {
+            override fun onResponse(
+                call: Call<XtreamEpgResponse>,
+                response: Response<XtreamEpgResponse>
+            ) {
+                pendingEpgCalls.remove(call)
+                val listings = if (response.isSuccessful) {
+                    response.body()?.listings.orEmpty()
+                } else {
+                    emptyList()
+                }
+                applyProviderEpgResult(channel, streamId, listings)
+            }
+
+            override fun onFailure(call: Call<XtreamEpgResponse>, t: Throwable) {
+                pendingEpgCalls.remove(call)
+                if (call.isCanceled) {
+                    finishEpgFetch(streamId)
+                    return
+                }
+                Log.w(TAG, "EPG full provider fallback failed stream=$streamId: ${t.javaClass.simpleName}: ${t.message}")
+                applyProviderEpgResult(channel, streamId, emptyList())
+            }
+        })
+    }
+
+    private fun applyProviderEpgResult(
+        channel: Channel,
+        streamId: Int,
+        primary: List<XtreamEpgListing>
+    ) {
+        // Show provider data immediately; custom XMLTV merging may still be rebuilding.
+        if (primary.isNotEmpty()) {
+            keepExistingEpgWhenRefreshIsEmpty(streamId, primary)
+        }
+        // Do not hold a provider fetch slot while a large custom XMLTV source downloads.
+        // Otherwise the first few rows occupy every slot and the rest of the provider guide
+        // is never requested until the XMLTV rebuild finishes.
+        finishEpgFetch(streamId)
+        lifecycleScope.launch {
+            val merged = applySecondaryEpgFallback(channel, primary)
+            keepExistingEpgWhenRefreshIsEmpty(streamId, merged)
         }
     }
 

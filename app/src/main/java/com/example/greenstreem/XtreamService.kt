@@ -34,6 +34,13 @@ interface XtreamService {
         @Query("limit") limit: Int = 10
     ): Call<XtreamEpgResponse>
 
+    @GET("player_api.php?action=get_simple_data_table")
+    fun getFullEpgForStream(
+        @Query("username") user: String,
+        @Query("password") pass: String,
+        @Query("stream_id") streamId: Int
+    ): Call<XtreamEpgResponse>
+
     @GET("player_api.php?action=get_vod_categories")
     fun getVodCategories(
         @Query("username") user: String,
