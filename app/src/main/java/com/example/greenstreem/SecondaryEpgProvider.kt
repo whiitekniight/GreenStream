@@ -4,7 +4,13 @@ import android.content.Context
 import android.util.Log
 import android.util.Xml
 import androidx.room.withTransaction
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -33,11 +39,14 @@ object SecondaryEpgProvider {
     private const val XMLTV_KEEP_FUTURE_SECONDS = 7 * 24 * 60 * 60L
     private const val XMLTV_QUERY_PAST_SECONDS = 30 * 60L
     private const val XMLTV_QUERY_FUTURE_SECONDS = 8 * 60 * 60L
+    private const val XMLTV_INDEX_BATCH_SIZE = 250
 
     private val mutex = Mutex()
     private val cacheByUrl = mutableMapOf<String, ParsedXmltv>()
     private val loadedAtByUrl = mutableMapOf<String, Long>()
     private val errorByUrl = mutableMapOf<String, String>()
+    private val indexingScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val indexingJobs = mutableMapOf<String, Deferred<Result<Unit>>>()
 
     suspend fun getListingsForChannel(context: Context, epgId: String): List<XtreamEpgListing> {
         if (!ProEntitlement.isProUnlocked(context)) return emptyList()
@@ -113,6 +122,10 @@ object SecondaryEpgProvider {
         cacheByUrl.clear()
         loadedAtByUrl.clear()
         errorByUrl.clear()
+        synchronized(indexingJobs) {
+            indexingJobs.values.forEach { it.cancel() }
+            indexingJobs.clear()
+        }
     }
 
     fun configuredSources(context: Context): List<SecondaryEpgSource> {
@@ -161,13 +174,33 @@ object SecondaryEpgProvider {
         if (url.isBlank() || keys.isEmpty()) return@withContext emptyList()
         val stored = getStoredListingsForKeys(context, keys)
         if (stored.isNotEmpty()) return@withContext stored
-        runCatching { ensureIndexed(context, url) }
-            .onFailure { error ->
-                Log.w(TAG, "XMLTV indexing failed: ${error.javaClass.simpleName}: ${error.message}")
-            }
-        val refreshed = getStoredListingsForKeys(context, keys)
-        refreshed
+        val indexing = startIndexing(context.applicationContext, url)
+        while (!indexing.isCompleted) {
+            delay(200L)
+            val partial = getStoredListingsForKeys(context, keys)
+            if (partial.isNotEmpty()) return@withContext partial
+        }
+        indexing.await().onFailure { error ->
+            Log.w(TAG, "XMLTV indexing failed: ${error.javaClass.simpleName}: ${error.message}")
+        }
+        getStoredListingsForKeys(context, keys)
     }
+
+    private fun startIndexing(context: Context, url: String): Deferred<Result<Unit>> =
+        synchronized(indexingJobs) {
+            indexingJobs[url]?.takeIf { it.isActive }?.let { return@synchronized it }
+            val created = indexingScope.async(start = CoroutineStart.LAZY) {
+                runCatching { ensureIndexed(context, url) }
+            }
+            indexingJobs[url] = created
+            created.invokeOnCompletion {
+                synchronized(indexingJobs) {
+                    if (indexingJobs[url] === created) indexingJobs.remove(url)
+                }
+            }
+            created.start()
+            created
+        }
 
     private suspend fun getStoredListingsForKeys(
         context: Context,
@@ -229,27 +262,37 @@ object SecondaryEpgProvider {
         val ambiguousAliases = mutableSetOf<String>()
         val channelDisplayNames = linkedMapOf<String, String>()
         val programs = mutableListOf<XmltvProgramEntity>()
-        val stagedPrograms = mutableListOf<XmltvProgramEntity>()
+        var indexInitialized = false
+
+        suspend fun persistBatch(batch: List<XmltvProgramEntity>) {
+            if (batch.isEmpty()) return
+            database.withTransaction {
+                if (!indexInitialized) {
+                    dao.clearPrograms()
+                    dao.clearAliases()
+                    if (aliases.isNotEmpty()) dao.insertAliases(aliases.values.toList())
+                    indexInitialized = true
+                }
+                dao.insertPrograms(batch)
+            }
+        }
+
         val result = runCatching {
             openStream(url).use { input ->
                 val parser = Xml.newPullParser()
                 parser.setInput(input, null)
                 parseXmltvToIndex(parser, channelDisplayNames, aliases, ambiguousAliases, programs) { batch ->
-                    stagedPrograms.addAll(batch)
+                    persistBatch(batch)
                 }
             }
             if (programs.isNotEmpty()) {
-                stagedPrograms.addAll(programs)
+                persistBatch(programs.toList())
                 programs.clear()
             }
-            if (stagedPrograms.isNotEmpty()) {
+            if (indexInitialized) {
                 database.withTransaction {
-                    dao.clearPrograms()
                     dao.clearAliases()
                     if (aliases.isNotEmpty()) dao.insertAliases(aliases.values.toList())
-                    stagedPrograms.chunked(1000).forEach { batch ->
-                        dao.insertPrograms(batch)
-                    }
                 }
             }
         }
@@ -417,7 +460,7 @@ object SecondaryEpgProvider {
                                 startTimestamp = start,
                                 stopTimestamp = stop
                             )
-                            if (programsOut.size >= 1000) {
+                            if (programsOut.size >= XMLTV_INDEX_BATCH_SIZE) {
                                 emitPrograms(programsOut.toList())
                                 programsOut.clear()
                             }
