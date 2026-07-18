@@ -12,6 +12,7 @@ import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -105,6 +106,8 @@ object AppUpdater {
     }
 
     private suspend fun downloadAndInstall(activity: FragmentActivity, info: AppUpdateInfo) {
+        if (!ensureInstallPermission(activity)) return
+
         val apkFile = withContext(Dispatchers.IO) {
             runCatching {
                 val out = File(activity.cacheDir, "greenstreem-update.apk")
@@ -130,15 +133,6 @@ object AppUpdater {
             }.getOrNull()
         } ?: run {
             Toast.makeText(activity, "Failed to download update", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !canInstallPackages(activity)) {
-            val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                data = Uri.parse("package:${activity.packageName}")
-            }
-            activity.startActivity(intent)
-            Toast.makeText(activity, "Allow install unknown apps, then update again", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -208,6 +202,53 @@ object AppUpdater {
         if (info.versionCode > 0 && packageVersionCode(pkg) != info.versionCode) {
             error("Downloaded APK version does not match update feed")
         }
+    }
+
+    private suspend fun ensureInstallPermission(activity: FragmentActivity): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || canInstallPackages(activity)) return true
+
+        val opened = withContext(Dispatchers.Main) {
+            val packageUri = Uri.parse("package:${activity.packageName}")
+            val candidates = listOf(
+                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, packageUri),
+                Intent(Settings.ACTION_SECURITY_SETTINGS),
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri),
+                Intent(Settings.ACTION_SETTINGS)
+            )
+            val settingsIntent = candidates.firstOrNull { candidate ->
+                candidate.resolveActivity(activity.packageManager) != null
+            }
+            if (settingsIntent == null) {
+                Toast.makeText(activity, "Could not open Install unknown apps settings", Toast.LENGTH_LONG).show()
+                false
+            } else {
+                runCatching { activity.startActivity(settingsIntent) }
+                    .onSuccess {
+                        Toast.makeText(
+                            activity,
+                            "Turn on Allow from this source, then press Back. The update will continue.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    .onFailure { error ->
+                        Toast.makeText(activity, "Could not open settings: ${error.message}", Toast.LENGTH_LONG).show()
+                    }
+                    .isSuccess
+            }
+        }
+        if (!opened) return false
+
+        // Keep the pending update alive while Android Settings is open. Once the user grants
+        // permission and returns, continue automatically instead of making them update again.
+        repeat(300) {
+            if (canInstallPackages(activity)) return true
+            if (activity.isFinishing || activity.isDestroyed) return false
+            delay(1_000L)
+        }
+        withContext(Dispatchers.Main) {
+            Toast.makeText(activity, "Install permission was not enabled", Toast.LENGTH_LONG).show()
+        }
+        return false
     }
 
     private fun packageVersionCode(pkg: PackageInfo): Int {
