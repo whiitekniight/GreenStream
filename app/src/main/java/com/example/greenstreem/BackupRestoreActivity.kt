@@ -18,12 +18,15 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class BackupRestoreActivity : AppCompatActivity() {
 
     private lateinit var rvOptions: RecyclerView
     private var rows: List<Row> = emptyList()
+    private var renderGeneration = 0
     private val chooseBackupFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) restorePickedBackup(uri)
     }
@@ -39,27 +42,50 @@ class BackupRestoreActivity : AppCompatActivity() {
     }
 
     private fun render() {
-        val backups = SettingsBackupManager.listAvailableBackups(this)
-        val list = mutableListOf<Row>(Row.Info(CloudBackupManager.statusText(this)))
-        list.add(Row.Action(if (CloudBackupManager.isConnected(this)) "Change restore code" else "Add your restore code (optional)", Action.CONNECT_CLOUD))
-        if (CloudBackupManager.isConnected(this)) {
-            list.add(Row.Action("Save current setup to this restore code", Action.BACKUP_CLOUD))
-            list.add(Row.Action("Restore saved setup from this code", Action.RESTORE_CLOUD))
-        }
-        list.addAll(listOf(
-            Row.Action("Create named backup", Action.CREATE_BACKUP),
-            Row.Action("Find backup file", Action.CHOOSE_BACKUP),
-            Row.Action("Refresh backup list", Action.REFRESH_LIST)
-        ))
-        if (backups.isEmpty()) {
-            list.add(Row.Info("No backups found in ${SettingsBackupManager.publicBackupLocation()}"))
-        } else {
-            backups.forEach { backup ->
-                list.add(Row.BackupFile(backup, "${backup.title}\n${backup.detail}"))
+        val generation = ++renderGeneration
+        showRows(
+            listOf(
+                Row.Info("Cloud backup: checking"),
+                Row.Action("Add or change restore code", Action.CONNECT_CLOUD),
+                Row.Action("Create named backup", Action.CREATE_BACKUP),
+                Row.Action("Find backup file", Action.CHOOSE_BACKUP)
+            )
+        )
+        lifecycleScope.launch {
+            val state = withContext(Dispatchers.IO) {
+                val connected = CloudBackupManager.isConnected(this@BackupRestoreActivity)
+                RestoreScreenState(
+                    connected = connected,
+                    status = CloudBackupManager.statusText(this@BackupRestoreActivity),
+                    backups = SettingsBackupManager.listAvailableBackups(this@BackupRestoreActivity)
+                )
             }
+            if (generation != renderGeneration || isFinishing || isDestroyed) return@launch
+            val list = mutableListOf<Row>(Row.Info(state.status))
+            list.add(Row.Action(if (state.connected) "Change restore code" else "Add your restore code (optional)", Action.CONNECT_CLOUD))
+            if (state.connected) {
+                list.add(Row.Action("Save current setup to this restore code", Action.BACKUP_CLOUD))
+                list.add(Row.Action("Restore saved setup from this code", Action.RESTORE_CLOUD))
+            }
+            list.addAll(listOf(
+                Row.Action("Create named backup", Action.CREATE_BACKUP),
+                Row.Action("Find backup file", Action.CHOOSE_BACKUP),
+                Row.Action("Refresh backup list", Action.REFRESH_LIST)
+            ))
+            if (state.backups.isEmpty()) {
+                list.add(Row.Info("No backups found in ${SettingsBackupManager.publicBackupLocation()}"))
+            } else {
+                state.backups.forEach { backup ->
+                    list.add(Row.BackupFile(backup, "${backup.title}\n${backup.detail}"))
+                }
+            }
+            list.add(Row.Info("Downloads backups: ${SettingsBackupManager.publicBackupLocation()}"))
+            showRows(list)
         }
-        list.add(Row.Info("Downloads backups: ${SettingsBackupManager.publicBackupLocation()}"))
-        rows = list
+    }
+
+    private fun showRows(newRows: List<Row>) {
+        rows = newRows
         rvOptions.adapter = BackupRowsAdapter(rows) { index -> onRowClick(rows[index]) }
     }
 
@@ -238,6 +264,12 @@ class BackupRestoreActivity : AppCompatActivity() {
         data class BackupFile(val backup: SettingsBackupManager.BackupEntry, val title: String) : Row()
         data class Info(val title: String) : Row()
     }
+
+    private data class RestoreScreenState(
+        val connected: Boolean,
+        val status: String,
+        val backups: List<SettingsBackupManager.BackupEntry>
+    )
 
     private enum class Action {
         CREATE_BACKUP,

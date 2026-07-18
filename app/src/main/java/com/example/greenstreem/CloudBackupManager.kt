@@ -121,12 +121,17 @@ object CloudBackupManager {
     }
 
     fun backupIfDue(context: Context) {
-        if (!isConnected(context)) return
         val appContext = context.applicationContext
         val last = prefs(appContext).getLong(KEY_LAST_BACKUP, 0L)
         if (System.currentTimeMillis() - last < AUTO_BACKUP_INTERVAL_MS || !autoBackupRunning.compareAndSet(false, true)) return
         backgroundScope.launch {
-            try { upload(appContext) } finally { autoBackupRunning.set(false) }
+            try {
+                // Android Keystore access can take seconds on TV hardware. Never make the
+                // activity transition wait for it when MainActivity moves to the background.
+                if (isConnected(appContext)) upload(appContext)
+            } finally {
+                autoBackupRunning.set(false)
+            }
         }
     }
 

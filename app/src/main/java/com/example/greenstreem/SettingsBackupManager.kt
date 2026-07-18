@@ -5,7 +5,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -193,9 +195,10 @@ object SettingsBackupManager {
         publicBackupLocation() to restoreFromText(context, backupText)
     }
 
-    suspend fun restoreBackupText(context: Context, backupText: String): Result<RestoreSummary> = runCatching {
-        restoreFromText(context, backupText)
-    }
+    suspend fun restoreBackupText(context: Context, backupText: String): Result<RestoreSummary> =
+        withContext(Dispatchers.IO) {
+            runCatching { restoreFromText(context, backupText) }
+        }
 
     private suspend fun restoreFromFile(context: Context, file: File): RestoreSummary {
         return restoreFromText(context, file.readText())

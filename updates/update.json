@@ -1,7 +1,7 @@
 {
-  "versionCode": 66,
-  "versionName": "1.9.30",
-  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.30",
-  "notes": "Loads the complete provider EPG without allowing additional XMLTV rebuilding to block the remaining channel rows."
+  "versionCode": 67,
+  "versionName": "1.9.31",
+  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.31",
+  "notes": "Opens Restore Code immediately, treats restored settings as a fresh lineup, and refreshes provider EPG across every live category."
 }
 

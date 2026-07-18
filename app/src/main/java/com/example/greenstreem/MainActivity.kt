@@ -423,7 +423,8 @@ class MainActivity : FragmentActivity() {
             ?.resizeMode
             ?: prefs.getInt(KEY_PLAYER_ASPECT_MODE, AspectRatioFrameLayout.RESIZE_MODE_FILL)
         miniInfoTimeoutMs = prefs.getInt(KEY_MINI_INFO_TIMEOUT_SEC, 4).coerceAtLeast(0) * 1000L
-        pendingEpgRefresh = shouldRefreshEpgOnStartup(prefs)
+        pendingEpgRefresh = prefs.getBoolean(KEY_EPG_FORCE_REFRESH_NOW, false) ||
+            shouldRefreshEpgOnStartup(prefs)
         currentMode = ContentMode.LIVE_TV
         promoteXtreamM3uPrefsIfNeeded(prefs)
         if (!prefs.getBoolean("has_playlist", false)) {
@@ -665,7 +666,6 @@ class MainActivity : FragmentActivity() {
         if (forceEpgRefreshNow) {
             pendingEpgRefresh = true
             pendingEpgRefreshUserRequested = true
-            prefs.edit().putBoolean(KEY_EPG_FORCE_REFRESH_NOW, false).apply()
         }
         if (!handleEpgSettingsInvalidation(prefs, forceEpgRefreshNow)) {
             maybeRunPendingEpgRefresh()
@@ -2736,10 +2736,12 @@ class MainActivity : FragmentActivity() {
             .enqueue(object : Callback<List<XtreamLiveStream>> {
                 override fun onResponse(call: Call<List<XtreamLiveStream>>, response: Response<List<XtreamLiveStream>>) {
                     if (response.isSuccessful) {
-                        cachedLiveStreams = (response.body() ?: emptyList()).groupBy { it.categoryId ?: "" }
+                        val allLiveStreams = response.body().orEmpty()
+                        cachedLiveStreams = allLiveStreams.groupBy { it.categoryId ?: "" }
                         runOnUiThread {
                             syncCurrentLiveChannelFromCachedStreams()
                             refreshRecentChannelsRow()
+                            enqueueAllCachedLiveEpg()
                         }
                     }
                 }
@@ -3045,7 +3047,47 @@ class MainActivity : FragmentActivity() {
             prefetchAdjacentLiveGroups(categoryId)
             refreshRecentChannelsRow()
             maybeRunPendingEpgRefresh()
+            // Category changes intentionally cancel older network calls. Re-add the complete
+            // catalog after prioritizing this category so the background refresh cannot stop
+            // at Entertainment when the user opens Settings, Movies, Kids, or Sports.
+            if (!prefs.getBoolean(KEY_EPG_FORCE_REFRESH_NOW, false)) {
+                enqueueAllCachedLiveEpg()
+            }
         }
+    }
+
+    private fun enqueueAllCachedLiveEpg(forceRefresh: Boolean = false) {
+        if (currentMode != ContentMode.LIVE_TV) return
+        val groups = cachedLiveStreams
+            ?.values
+            .orEmpty()
+            .map { it.iterator() }
+        val interleaved = ArrayList<XtreamLiveStream>()
+        var added: Boolean
+        do {
+            added = false
+            groups.forEach { iterator ->
+                if (iterator.hasNext()) {
+                    interleaved.add(iterator.next())
+                    added = true
+                }
+            }
+        } while (added)
+        interleaved
+            .distinctBy { it.streamId }
+            .map { stream ->
+                Channel(
+                    id = stream.streamId.toLong(),
+                    name = stream.name,
+                    group = stream.categoryId.orEmpty(),
+                    logoUrl = stream.streamIcon,
+                    streamUrl = "",
+                    epgId = stream.epgId,
+                    number = stream.num,
+                    hasCatchup = supportsCatchup(stream)
+                )
+            }
+            .forEach { channel -> fetchRowEpg(channel, forceRefresh) }
     }
 
     private fun maybeRunPendingEpgRefresh() {
@@ -3057,7 +3099,16 @@ class MainActivity : FragmentActivity() {
         }
         markEpgRefreshInProgress()
         resetEpgFetchQueue(cancelInFlight = true)
-        enqueueEpgForChannels(currentLiveChannels, forceRefresh = true)
+        val anchorIndex = currentLiveChannels.indexOfFirst { it.id == currentChannel?.id }
+            .takeIf { it >= 0 }
+            ?: epgAdapter.focusedRowPosition.takeIf { it in currentLiveChannels.indices }
+            ?: 0
+        // Fill the rows on screen first, then spread requests across every category so a
+        // restored lineup does not finish all of Entertainment before starting Movies/Kids.
+        enqueueEpgWindowForChannels(currentLiveChannels, anchorIndex, forceRefresh = true)
+        if (cachedLiveStreams.orEmpty().size > 1) {
+            enqueueAllCachedLiveEpg(forceRefresh = true)
+        }
         pendingEpgRefresh = false
         processEpgFetchQueue()
     }
@@ -3076,6 +3127,7 @@ class MainActivity : FragmentActivity() {
         if (!wasUpdating) return
         prefs.edit()
             .putBoolean(KEY_EPG_UPDATE_IN_PROGRESS, false)
+            .putBoolean(KEY_EPG_FORCE_REFRESH_NOW, false)
             .remove(KEY_EPG_UPDATE_STARTED_AT)
             .putLong(KEY_EPG_LAST_REFRESHED_AT, System.currentTimeMillis())
             .apply()
