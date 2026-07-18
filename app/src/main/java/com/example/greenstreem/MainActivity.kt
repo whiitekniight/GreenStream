@@ -3317,6 +3317,12 @@ class MainActivity : FragmentActivity() {
                         return
                     }
                     val primary = response.body()?.listings.orEmpty()
+                    // Never hold valid provider guide data behind a custom XMLTV download.
+                    // Restores intentionally clear the XMLTV index, and rebuilding a large source
+                    // can take long enough to leave every guide row showing No Information.
+                    if (primary.isNotEmpty()) {
+                        keepExistingEpgWhenRefreshIsEmpty(streamId, primary)
+                    }
                     lifecycleScope.launch {
                         val merged = applySecondaryEpgFallback(channel, primary)
                         keepExistingEpgWhenRefreshIsEmpty(streamId, merged)
@@ -3325,6 +3331,9 @@ class MainActivity : FragmentActivity() {
                 }
                 override fun onFailure(call: Call<XtreamEpgResponse>, t: Throwable) {
                     pendingEpgCalls.remove(call)
+                    if (!call.isCanceled) {
+                        Log.w(TAG, "EPG provider parse/request failed stream=$streamId: ${t.javaClass.simpleName}: ${t.message}")
+                    }
                     lifecycleScope.launch {
                         val merged = applySecondaryEpgFallback(channel, emptyList())
                         keepExistingEpgWhenRefreshIsEmpty(streamId, merged)
@@ -6183,6 +6192,11 @@ class MainActivity : FragmentActivity() {
         suppressBackToCategoriesUntilMs = 0L
         lastBackPressTs = 0L
         updateUiState(UiState.EPG_GRID)
+        // A restore can reopen playback before the category load finishes. In that race the
+        // initial guide enqueue may be skipped, so always hydrate missing rows when the user
+        // returns to the live guide. Cached rows exit quickly inside fetchRowEpg().
+        enqueueEpgForChannels(currentLiveChannels)
+        maybeRunPendingEpgRefresh()
         if (row != -1) {
             rvContent.post { focusEpgRowAt(row) }
         }

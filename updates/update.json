@@ -1,7 +1,7 @@
 {
-  "versionCode": 63,
-  "versionName": "1.9.27",
-  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.27",
-  "notes": "Closes the restore-code keyboard after six characters and reloads EPG data after a cloud restore, including saved manual EPG channel mappings."
+  "versionCode": 64,
+  "versionName": "1.9.28",
+  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.28",
+  "notes": "Restores live guide data immediately after a cloud restore while custom XMLTV sources rebuild in the background."
 }
 

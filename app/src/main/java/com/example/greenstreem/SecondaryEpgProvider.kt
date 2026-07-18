@@ -1,6 +1,7 @@
 package com.example.greenstreem
 
 import android.content.Context
+import android.util.Log
 import android.util.Xml
 import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +17,8 @@ import java.util.Locale
 import java.util.zip.GZIPInputStream
 
 object SecondaryEpgProvider {
+
+    private const val TAG = "SecondaryEpgProvider"
 
     private const val PREFS = "iptv_prefs"
     private const val KEY_SECONDARY_EPG_URL = "secondary_epg_url"
@@ -158,8 +161,12 @@ object SecondaryEpgProvider {
         if (url.isBlank() || keys.isEmpty()) return@withContext emptyList()
         val stored = getStoredListingsForKeys(context, keys)
         if (stored.isNotEmpty()) return@withContext stored
-        ensureIndexed(context, url)
-        getStoredListingsForKeys(context, keys)
+        runCatching { ensureIndexed(context, url) }
+            .onFailure { error ->
+                Log.w(TAG, "XMLTV indexing failed: ${error.javaClass.simpleName}: ${error.message}")
+            }
+        val refreshed = getStoredListingsForKeys(context, keys)
+        refreshed
     }
 
     private suspend fun getStoredListingsForKeys(
