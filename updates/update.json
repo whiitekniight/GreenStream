@@ -1,7 +1,7 @@
 {
-  "versionCode": 62,
-  "versionName": "1.9.26",
+  "versionCode": 63,
+  "versionName": "1.9.27",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Fixes dashboard app restart and large-playlist management sync, with category ordering, visibility, favorites, permanent code re-view, and encrypted cloud restore."
+  "notes": "Closes the restore-code keyboard after six characters and reloads EPG data after a cloud restore, including saved manual EPG channel mappings."
 }
 

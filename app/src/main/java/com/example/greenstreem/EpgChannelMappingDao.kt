@@ -8,6 +8,9 @@ import androidx.room.Query
 
 @Dao
 interface EpgChannelMappingDao {
+    @Query("SELECT * FROM epg_channel_mappings ORDER BY channelId")
+    suspend fun getAll(): List<EpgChannelMapping>
+
     @Query("SELECT * FROM epg_channel_mappings WHERE channelId = :channelId LIMIT 1")
     suspend fun getMapping(channelId: Long): EpgChannelMapping?
 

@@ -23,10 +23,11 @@ object SettingsBackupManager {
         val hiddenGroups: Int,
         val hiddenChannels: Int,
         val groupOrder: Int,
-        val channelOrder: Int
+        val channelOrder: Int,
+        val epgMappings: Int
     ) {
         fun message(): String {
-            return "Restored favorites=$favorites, hidden groups=$hiddenGroups, hidden channels=$hiddenChannels, group order=$groupOrder, channel order=$channelOrder"
+            return "Restored favorites=$favorites, hidden groups=$hiddenGroups, hidden channels=$hiddenChannels, group order=$groupOrder, channel order=$channelOrder, EPG mappings=$epgMappings"
         }
     }
 
@@ -117,6 +118,19 @@ object SettingsBackupManager {
                         .put("channelId", c.channelId)
                         .put("groupId", c.groupId)
                         .put("position", c.position)
+                )
+            }
+        })
+
+        val epgMappings = db.epgChannelMappingDao().getAll()
+        root.put("epgChannelMappings", JSONArray().apply {
+            epgMappings.forEach { mapping ->
+                put(
+                    JSONObject()
+                        .put("channelId", mapping.channelId)
+                        .put("provider", mapping.provider)
+                        .put("epgChannelId", mapping.epgChannelId)
+                        .put("displayName", mapping.displayName)
                 )
             }
         })
@@ -217,11 +231,27 @@ object SettingsBackupManager {
         }
         edit.commit()
 
+        // EPG program caches are device-local and are intentionally not included in a backup.
+        // Never restore stale refresh markers that would prevent the new installation from
+        // downloading guide data after the restored playlist and EPG sources are applied.
+        prefs.edit()
+            .putBoolean("groups_changed", true)
+            .putBoolean("epg_force_refresh_now", true)
+            .putBoolean("epg_update_in_progress", false)
+            .remove("epg_update_started_at")
+            .remove("epg_last_refreshed_at")
+            .remove("epg_settings_signature")
+            .commit()
+
         db.favoriteDao().clearAll()
         db.groupDao().clearAll()
         db.hiddenChannelDao().clearAll()
         db.groupOrderDao().clearAllOrder()
         db.channelOrderDao().clearAll()
+        db.epgCacheDao().clearAll()
+        db.epgChannelMappingDao().clearAll()
+        db.xmltvDao().clearPrograms()
+        db.xmltvDao().clearAliases()
 
         val favorites = mutableListOf<Favorite>()
         val favoritesJson = root.optJSONArray("favorites") ?: JSONArray()
@@ -277,14 +307,33 @@ object SettingsBackupManager {
         }
         if (channelOrder.isNotEmpty()) db.channelOrderDao().saveOrder(channelOrder)
 
-        XtreamManager.initFromPrefs(context)
+        val epgMappings = mutableListOf<EpgChannelMapping>()
+        val epgMappingsJson = root.optJSONArray("epgChannelMappings") ?: JSONArray()
+        for (i in 0 until epgMappingsJson.length()) {
+            val item = epgMappingsJson.optJSONObject(i) ?: continue
+            val epgChannelId = item.optString("epgChannelId", "")
+            if (!item.has("channelId") || epgChannelId.isBlank()) continue
+            epgMappings.add(
+                EpgChannelMapping(
+                    channelId = item.optLong("channelId"),
+                    provider = item.optString("provider", ""),
+                    epgChannelId = epgChannelId,
+                    displayName = item.optString("displayName", epgChannelId)
+                )
+            )
+        }
+        epgMappings.forEach { db.epgChannelMappingDao().upsert(it) }
+
         PlaylistProfilesManager.syncLegacyKeysToActive(context)
+        XtreamManager.initFromPrefs(context)
+        SecondaryEpgProvider.clearCache()
         return RestoreSummary(
             favorites = favorites.size,
             hiddenGroups = hiddenGroups.size,
             hiddenChannels = hiddenChannels.size,
             groupOrder = groupOrder.size,
-            channelOrder = channelOrder.size
+            channelOrder = channelOrder.size,
+            epgMappings = epgMappings.size
         )
     }
 

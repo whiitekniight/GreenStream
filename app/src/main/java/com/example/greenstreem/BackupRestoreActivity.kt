@@ -3,7 +3,12 @@ package com.example.greenstreem
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
+import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
@@ -82,13 +87,28 @@ class BackupRestoreActivity : AppCompatActivity() {
             hint = "ABC123"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
             filters = arrayOf(android.text.InputFilter.LengthFilter(6))
+            imeOptions = EditorInfo.IME_ACTION_DONE
             setSingleLine(true)
+        }
+        input.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(text: Editable?) {
+                if (text?.count { it.isLetterOrDigit() } == 6) input.post { hideKeyboard(input) }
+            }
+        })
+        input.setOnEditorActionListener { _, actionId, event ->
+            val done = actionId == EditorInfo.IME_ACTION_DONE ||
+                (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP)
+            if (done) hideKeyboard(input)
+            done
         }
         AlertDialog.Builder(this)
             .setTitle("Permanent restore code")
             .setMessage("Enter the 6-character code from your GreenStreem provider.")
             .setView(input)
             .setPositiveButton("Connect") { _, _ ->
+                hideKeyboard(input)
                 lifecycleScope.launch {
                     CloudBackupManager.connect(this@BackupRestoreActivity, input.text.toString())
                         .onSuccess { result ->
@@ -101,6 +121,12 @@ class BackupRestoreActivity : AppCompatActivity() {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun hideKeyboard(input: EditText) {
+        input.clearFocus()
+        (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)
+            ?.hideSoftInputFromWindow(input.windowToken, 0)
     }
 
     private fun backUpToCloud(startMessage: String? = null) {
