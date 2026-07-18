@@ -287,6 +287,7 @@ class MainActivity : FragmentActivity() {
     private var lastUnsupportedVodAudioSummary: String = ""
     private var pendingEpgRefresh = false
     private var pendingEpgRefreshUserRequested = false
+    private var epgCatalogLoadPending = false
     private var isChannelVisibilityEditMode = false
     private val epgPxPerMinute = 5
     private var suppressPlayingIndicatorUpdatesUntilMs = 0L
@@ -2732,6 +2733,10 @@ class MainActivity : FragmentActivity() {
             return
         }
         val service = XtreamManager.getService() ?: return
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_EPG_FORCE_REFRESH_NOW, false)) {
+            epgCatalogLoadPending = true
+        }
         service.getLiveStreams(XtreamManager.username, XtreamManager.password, null)
             .enqueue(object : Callback<List<XtreamLiveStream>> {
                 override fun onResponse(call: Call<List<XtreamLiveStream>>, response: Response<List<XtreamLiveStream>>) {
@@ -2741,11 +2746,21 @@ class MainActivity : FragmentActivity() {
                         runOnUiThread {
                             syncCurrentLiveChannelFromCachedStreams()
                             refreshRecentChannelsRow()
-                            enqueueAllCachedLiveEpg()
+                            enqueueAllCachedLiveEpg(
+                                forceRefresh = prefs.getBoolean(KEY_EPG_FORCE_REFRESH_NOW, false)
+                            )
+                            epgCatalogLoadPending = false
+                            processEpgFetchQueue()
                         }
+                    } else {
+                        epgCatalogLoadPending = false
+                        processEpgFetchQueue()
                     }
                 }
-                override fun onFailure(call: Call<List<XtreamLiveStream>>, t: Throwable) {}
+                override fun onFailure(call: Call<List<XtreamLiveStream>>, t: Throwable) {
+                    epgCatalogLoadPending = false
+                    processEpgFetchQueue()
+                }
             })
         service.getVodStreams(XtreamManager.username, XtreamManager.password, null)
             .enqueue(object : Callback<List<XtreamVodStream>> {
@@ -2782,12 +2797,6 @@ class MainActivity : FragmentActivity() {
         val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
         val lastChanId = prefs.getLong("last_channel_id", -1L)
         currentContentCall?.cancel()
-        pendingEpgCalls.forEach { it.cancel() }
-        pendingEpgCalls.clear()
-        epgInFlightStreamIds.clear()
-        epgQueuedStreamIds.clear()
-        epgFetchQueue.clear()
-        epgActiveFetchCount = 0
 
         if (category.id == "favorites") {
             lifecycleScope.launch {
@@ -2811,10 +2820,10 @@ class MainActivity : FragmentActivity() {
                     rememberLivePlaybackLaunchCategory(currentChannel!!.id, category.id)
                 }
                 epgAdapter.setData(channels)
-                hydrateEpgCacheFromDisk(channels)
                 enqueueInitialEpgForChannels(channels)
-                refreshRecentChannelsRow()
                 maybeRunPendingEpgRefresh()
+                hydrateEpgCacheFromDisk(channels)
+                refreshRecentChannelsRow()
             }
             return
         }
@@ -2836,10 +2845,10 @@ class MainActivity : FragmentActivity() {
                     rememberLivePlaybackLaunchCategory(currentChannel!!.id, category.id)
                 }
                 epgAdapter.setData(channels)
-                hydrateEpgCacheFromDisk(channels)
                 enqueueInitialEpgForChannels(channels)
-                refreshRecentChannelsRow()
                 maybeRunPendingEpgRefresh()
+                hydrateEpgCacheFromDisk(channels)
+                refreshRecentChannelsRow()
             }
             return
         }
@@ -2998,6 +3007,8 @@ class MainActivity : FragmentActivity() {
             }
             currentLiveChannelIndex = sortedChannels.indexOfFirst { it.id == currentChannel?.id }
             epgAdapter.setData(sortedChannels)
+            enqueueInitialEpgForChannels(sortedChannels)
+            maybeRunPendingEpgRefresh()
             hydrateEpgCacheFromDisk(sortedChannels)
             // Paint cached EPG immediately so rows fill instantly while network refresh runs.
             sortedChannels.forEach { ch ->
@@ -3043,13 +3054,9 @@ class MainActivity : FragmentActivity() {
             if (currentState == UiState.EPG_GRID && currentLiveCategoryId == categoryId) {
                 rvContent.post { focusEpgRowAt(targetRow) }
             }
-            enqueueInitialEpgForChannels(sortedChannels)
             prefetchAdjacentLiveGroups(categoryId)
             refreshRecentChannelsRow()
-            maybeRunPendingEpgRefresh()
-            // Category changes intentionally cancel older network calls. Re-add the complete
-            // catalog after prioritizing this category so the background refresh cannot stop
-            // at Entertainment when the user opens Settings, Movies, Kids, or Sports.
+            // Keep filling the complete catalog after prioritizing the category on screen.
             if (!prefs.getBoolean(KEY_EPG_FORCE_REFRESH_NOW, false)) {
                 enqueueAllCachedLiveEpg()
             }
@@ -3105,6 +3112,18 @@ class MainActivity : FragmentActivity() {
             ?: 0
         // Fill the rows on screen first, then spread requests across every category so a
         // restored lineup does not finish all of Entertainment before starting Movies/Kids.
+        val layoutManager = rvContent.layoutManager as? LinearLayoutManager
+        val firstVisible = layoutManager?.findFirstVisibleItemPosition() ?: RecyclerView.NO_POSITION
+        val lastVisible = layoutManager?.findLastVisibleItemPosition() ?: RecyclerView.NO_POSITION
+        if (firstVisible in currentLiveChannels.indices && lastVisible in currentLiveChannels.indices) {
+            currentLiveChannels
+                .subList(firstVisible, lastVisible + 1)
+                .forEach { channel -> fetchRowEpg(channel, forceRefresh = true) }
+        } else {
+            currentLiveChannels.take(12).forEach { channel ->
+                fetchRowEpg(channel, forceRefresh = true)
+            }
+        }
         enqueueEpgWindowForChannels(currentLiveChannels, anchorIndex, forceRefresh = true)
         if (cachedLiveStreams.orEmpty().size > 1) {
             enqueueAllCachedLiveEpg(forceRefresh = true)
@@ -3223,8 +3242,33 @@ class MainActivity : FragmentActivity() {
 
     private fun enqueueInitialEpgForChannels(channels: List<Channel>) {
         if (!pendingEpgRefresh) {
-            enqueueEpgForChannels(channels)
+            prioritizeEpgForChannels(channels)
         }
+    }
+
+    private fun prioritizeEpgForChannels(channels: List<Channel>) {
+        if (channels.isEmpty()) return
+        val anchorIndex = channels.indexOfFirst { it.id == currentChannel?.id }
+            .takeIf { it >= 0 }
+            ?: epgAdapter.focusedRowPosition.takeIf { it in channels.indices }
+            ?: 0
+        val ordered = ArrayList<Channel>(channels.size)
+        ordered.add(channels[anchorIndex])
+        var delta = 1
+        while (ordered.size < channels.size) {
+            val down = anchorIndex + delta
+            if (down < channels.size) ordered.add(channels[down])
+            val up = anchorIndex - delta
+            if (up >= 0) ordered.add(channels[up])
+            delta++
+        }
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        val forceRefresh = prefs.getBoolean(KEY_EPG_UPDATE_IN_PROGRESS, false) ||
+            prefs.getBoolean(KEY_EPG_FORCE_REFRESH_NOW, false)
+        ordered.asReversed().forEach { channel ->
+            fetchRowEpg(channel, forceRefresh = forceRefresh, highPriority = true)
+        }
+        processEpgFetchQueue()
     }
 
     private fun resetEpgFetchQueue(cancelInFlight: Boolean) {
@@ -3255,7 +3299,11 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun fetchRowEpg(channel: Channel, forceRefresh: Boolean = false) {
+    private fun fetchRowEpg(
+        channel: Channel,
+        forceRefresh: Boolean = false,
+        highPriority: Boolean = false
+    ) {
         val streamId = channel.id.toInt()
         if (!forceRefresh) {
             val cached = epgCacheByStreamId[streamId]
@@ -3266,9 +3314,21 @@ class MainActivity : FragmentActivity() {
                 return
             }
         }
-        if (epgInFlightStreamIds.contains(streamId) || !epgQueuedStreamIds.add(streamId)) return
-        epgFetchQueue.addLast(channel to forceRefresh)
-        processEpgFetchQueue()
+        if (epgInFlightStreamIds.contains(streamId)) return
+        if (epgQueuedStreamIds.contains(streamId)) {
+            if (!highPriority) return
+            val existing = epgFetchQueue.firstOrNull { it.first.id.toInt() == streamId } ?: return
+            epgFetchQueue.remove(existing)
+            epgFetchQueue.addFirst(existing.first to (existing.second || forceRefresh))
+            return
+        }
+        if (!epgQueuedStreamIds.add(streamId)) return
+        if (highPriority) {
+            epgFetchQueue.addFirst(channel to forceRefresh)
+        } else {
+            epgFetchQueue.addLast(channel to forceRefresh)
+        }
+        if (!highPriority) processEpgFetchQueue()
     }
 
     private fun enqueueEpgForChannels(channels: List<Channel>, forceRefresh: Boolean = false) {
@@ -3318,7 +3378,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun processEpgFetchQueue() {
-        if (epgFetchQueue.isEmpty() && epgActiveFetchCount == 0) {
+        if (epgFetchQueue.isEmpty() && epgActiveFetchCount == 0 && !epgCatalogLoadPending) {
             markEpgRefreshFinished()
             return
         }
@@ -3385,7 +3445,7 @@ class MainActivity : FragmentActivity() {
                 }
             })
         }
-        if (epgFetchQueue.isEmpty() && epgActiveFetchCount == 0) {
+        if (epgFetchQueue.isEmpty() && epgActiveFetchCount == 0 && !epgCatalogLoadPending) {
             markEpgRefreshFinished()
         }
     }

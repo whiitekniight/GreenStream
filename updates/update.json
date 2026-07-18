@@ -1,7 +1,7 @@
 {
-  "versionCode": 68,
-  "versionName": "1.9.32",
-  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.32",
-  "notes": "Opens Install unknown apps settings immediately when required and automatically continues the update after permission is enabled."
+  "versionCode": 69,
+  "versionName": "1.9.33",
+  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.33",
+  "notes": "Makes restore-code setup available immediately and refreshes the complete live TV guide after a cloud restore, with visible categories prioritized first."
 }
 
