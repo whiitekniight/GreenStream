@@ -27,7 +27,7 @@ class BackupRestoreActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_playlist_settings)
 
-        findViewById<TextView>(R.id.tvPlaylistSettingsTitle)?.text = "Backup & Restore"
+        findViewById<TextView>(R.id.tvPlaylistSettingsTitle)?.text = "Restore Code & Backups"
         rvOptions = findViewById(R.id.rvPlaylistOptions)
         rvOptions.layoutManager = LinearLayoutManager(this)
         render()
@@ -35,11 +35,17 @@ class BackupRestoreActivity : AppCompatActivity() {
 
     private fun render() {
         val backups = SettingsBackupManager.listAvailableBackups(this)
-        val list = mutableListOf<Row>(
+        val list = mutableListOf<Row>(Row.Info(CloudBackupManager.statusText(this)))
+        list.add(Row.Action(if (CloudBackupManager.isConnected(this)) "Change restore code" else "Add your restore code (optional)", Action.CONNECT_CLOUD))
+        if (CloudBackupManager.isConnected(this)) {
+            list.add(Row.Action("Save current setup to this restore code", Action.BACKUP_CLOUD))
+            list.add(Row.Action("Restore saved setup from this code", Action.RESTORE_CLOUD))
+        }
+        list.addAll(listOf(
             Row.Action("Create named backup", Action.CREATE_BACKUP),
             Row.Action("Find backup file", Action.CHOOSE_BACKUP),
             Row.Action("Refresh backup list", Action.REFRESH_LIST)
-        )
+        ))
         if (backups.isEmpty()) {
             list.add(Row.Info("No backups found in ${SettingsBackupManager.publicBackupLocation()}"))
         } else {
@@ -65,7 +71,70 @@ class BackupRestoreActivity : AppCompatActivity() {
             Action.CREATE_BACKUP -> showBackupNameDialog()
             Action.CHOOSE_BACKUP -> chooseBackupFile.launch(arrayOf("application/json", "text/plain", "*/*"))
             Action.REFRESH_LIST -> render()
+            Action.CONNECT_CLOUD -> showRestoreCodeDialog()
+            Action.BACKUP_CLOUD -> backUpToCloud()
+            Action.RESTORE_CLOUD -> confirmCloudRestore()
         }
+    }
+
+    private fun showRestoreCodeDialog() {
+        val input = EditText(this).apply {
+            hint = "ABC123"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+            filters = arrayOf(android.text.InputFilter.LengthFilter(6))
+            setSingleLine(true)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Permanent restore code")
+            .setMessage("Enter the 6-character code from your GreenStreem provider.")
+            .setView(input)
+            .setPositiveButton("Connect") { _, _ ->
+                lifecycleScope.launch {
+                    CloudBackupManager.connect(this@BackupRestoreActivity, input.text.toString())
+                        .onSuccess { result ->
+                            render()
+                            if (result.hasBackup) confirmCloudRestore()
+                            else backUpToCloud("Connected. Creating the first cloud backup…")
+                        }
+                        .onFailure { Toast.makeText(this@BackupRestoreActivity, it.message, Toast.LENGTH_LONG).show() }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun backUpToCloud(startMessage: String? = null) {
+        if (startMessage != null) Toast.makeText(this, startMessage, Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            CloudBackupManager.upload(this@BackupRestoreActivity)
+                .onSuccess {
+                    Toast.makeText(this@BackupRestoreActivity, "Cloud backup saved", Toast.LENGTH_LONG).show()
+                    render()
+                }
+                .onFailure { Toast.makeText(this@BackupRestoreActivity, "Cloud backup failed: ${it.message}", Toast.LENGTH_LONG).show() }
+        }
+    }
+
+    private fun confirmCloudRestore() {
+        AlertDialog.Builder(this)
+            .setTitle("Restore cloud backup")
+            .setMessage("Replace this installation's playlists, settings, favorites, hidden items, and ordering with the saved cloud backup?")
+            .setPositiveButton("Restore") { _, _ ->
+                lifecycleScope.launch {
+                    CloudBackupManager.downloadAndDecrypt(this@BackupRestoreActivity)
+                        .fold(
+                            onSuccess = { SettingsBackupManager.restoreBackupText(this@BackupRestoreActivity, it) },
+                            onFailure = { Result.failure(it) }
+                        )
+                        .onSuccess { summary ->
+                            Toast.makeText(this@BackupRestoreActivity, summary.message(), Toast.LENGTH_LONG).show()
+                            restartApp()
+                        }
+                        .onFailure { Toast.makeText(this@BackupRestoreActivity, "Cloud restore failed: ${it.message}", Toast.LENGTH_LONG).show() }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun restorePickedBackup(uri: Uri) {
@@ -147,7 +216,10 @@ class BackupRestoreActivity : AppCompatActivity() {
     private enum class Action {
         CREATE_BACKUP,
         CHOOSE_BACKUP,
-        REFRESH_LIST
+        REFRESH_LIST,
+        CONNECT_CLOUD,
+        BACKUP_CLOUD,
+        RESTORE_CLOUD
     }
 
     private class BackupRowsAdapter(
@@ -166,7 +238,8 @@ class BackupRestoreActivity : AppCompatActivity() {
         }
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val title = when (val row = items[position]) {
+            val row = items[position]
+            val title = when (row) {
                 is Row.Action -> row.title
                 is Row.BackupFile -> row.title
                 is Row.Info -> row.title
@@ -174,10 +247,12 @@ class BackupRestoreActivity : AppCompatActivity() {
             holder.text.text = title
             holder.text.setTextColor(android.graphics.Color.WHITE)
             holder.text.textSize = 16f
-            holder.itemView.isFocusable = true
+            val actionable = row !is Row.Info
+            holder.itemView.isFocusable = actionable
+            holder.itemView.isClickable = actionable
             holder.itemView.setBackgroundResource(R.drawable.selector_button_bg)
             holder.itemView.setPadding(32, 24, 32, 24)
-            holder.itemView.setOnClickListener { onClickIndex(position) }
+            holder.itemView.setOnClickListener(if (actionable) android.view.View.OnClickListener { onClickIndex(position) } else null)
         }
 
         override fun getItemCount(): Int = items.size

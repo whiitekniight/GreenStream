@@ -434,6 +434,7 @@ class MainActivity : FragmentActivity() {
 
         db = AppDatabase.getDatabase(this)
         XtreamManager.initFromPrefs(this)
+        CloudBackupManager.startManagementSync(applicationContext)
         val hasValidService = if (isM3uPlaylist()) {
             prefs.getString(KEY_M3U_URL, "").orEmpty().isNotBlank()
         } else {
@@ -634,6 +635,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
+        CloudBackupManager.backupIfDue(applicationContext)
         if (!suppressExitOnUserLeaveHint) {
             saveVodResumeProgress()
             stopVodResumeTicker()

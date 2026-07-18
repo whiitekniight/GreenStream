@@ -38,10 +38,14 @@ object SettingsBackupManager {
     )
 
     suspend fun backupNow(context: Context, label: String? = null): Result<File> = runCatching {
-        val backupText = buildBackupJson(context).toString(2)
+        val backupText = createBackupText(context).getOrThrow()
         val out = writePrivateBackup(context, backupText, label)
         writePublicBackup(context, out.name, backupText)
         out
+    }
+
+    suspend fun createBackupText(context: Context): Result<String> = runCatching {
+        buildBackupJson(context).toString()
     }
 
     private suspend fun buildBackupJson(context: Context): JSONObject {

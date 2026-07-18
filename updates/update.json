@@ -1,7 +1,7 @@
 {
-  "versionCode": 59,
-  "versionName": "1.9.23",
+  "versionCode": 62,
+  "versionName": "1.9.26",
   "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk",
-  "notes": "Adds per-user full-library movie and series search, keeps phone/tablet system controls visible for 10 seconds before fullscreen hide, and preserves Android TV fullscreen behavior."
+  "notes": "Fixes dashboard app restart and large-playlist management sync, with category ordering, visibility, favorites, permanent code re-view, and encrypted cloud restore."
 }
 

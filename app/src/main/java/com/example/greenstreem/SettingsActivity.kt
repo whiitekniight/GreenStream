@@ -29,6 +29,7 @@ class SettingsActivity : AppCompatActivity() {
     private val settingsList by lazy {
         buildList {
             add(SettingItem("Playlists", "Manage playlists and login sources.", android.R.drawable.ic_menu_slideshow))
+            add(SettingItem("Restore Code", "Optional: enter the code given by your provider to back up or restore this app.", android.R.drawable.ic_menu_save))
             add(SettingItem("TV Guide", proAwareDescription("EPG sources, update behavior, and display options.", "Pro: EPG sources, update behavior, and display options."), android.R.drawable.ic_menu_today))
             add(SettingItem("Playback", proAwareDescription("Player behavior, startup, and stream options.", "Pro: playback behavior, startup, and stream options."), android.R.drawable.ic_media_play))
             add(SettingItem("Downloads", proAwareDescription("Movie download location and network targets.", "Pro: movie downloads and network storage."), android.R.drawable.stat_sys_download_done))
@@ -83,6 +84,7 @@ class SettingsActivity : AppCompatActivity() {
         ) { item ->
             when (item.title) {
                 "Playlists" -> startActivity(Intent(this, PlaylistSettingsActivity::class.java))
+                "Restore Code" -> startActivity(Intent(this, BackupRestoreActivity::class.java))
                 "TV Guide" -> openProFeature("TV Guide settings are available in GreenStreem Pro.") {
                     openAdvanced(AdvancedSettingsActivity.Section.EPG.id)
                 }
