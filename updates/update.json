@@ -1,7 +1,7 @@
 {
-  "versionCode": 69,
-  "versionName": "1.9.33",
-  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.33",
-  "notes": "Makes restore-code setup available immediately and refreshes the complete live TV guide after a cloud restore, with visible categories prioritized first."
+  "versionCode": 70,
+  "versionName": "1.9.34",
+  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.34",
+  "notes": "Restores Shield and Android TV remote left/right movie seeking with the on-screen time marker."
 }
 

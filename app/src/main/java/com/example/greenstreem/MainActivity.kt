@@ -1771,7 +1771,10 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun isPlaybackOverlayOpen(): Boolean {
-        val controlsOpen = ::movieControlsButtons.isInitialized && movieControlsButtons.visibility == View.VISIBLE
+        val controlsOpen = ::movieControlsBar.isInitialized &&
+            ::movieControlsButtons.isInitialized &&
+            movieControlsBar.visibility == View.VISIBLE &&
+            movieControlsButtons.visibility == View.VISIBLE
         val nextPromptOpen = ::nextEpisodePrompt.isInitialized && nextEpisodePrompt.visibility == View.VISIBLE
         return controlsOpen || nextPromptOpen
     }
