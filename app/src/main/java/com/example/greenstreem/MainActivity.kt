@@ -289,7 +289,7 @@ class MainActivity : FragmentActivity() {
     private var pendingEpgRefreshUserRequested = false
     private var epgCatalogLoadPending = false
     private var isChannelVisibilityEditMode = false
-    private val epgPxPerMinute = 5
+    private val epgPxPerMinute = 10
     private var suppressPlayingIndicatorUpdatesUntilMs = 0L
     private var visibilityEditOriginalState: UiState = UiState.EPG_GRID
     private var visibilityEditChannels: List<Channel> = emptyList()
