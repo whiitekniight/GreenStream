@@ -1540,7 +1540,7 @@ class MainActivity : FragmentActivity() {
 
     private fun handlePhoneMovieTap(): Boolean {
         if (isTvUiMode()) return false
-        if (currentState != UiState.FULL_SCREEN || currentMode == ContentMode.LIVE_TV || currentVodResumeKey == null) {
+        if (currentState != UiState.FULL_SCREEN || currentMode == ContentMode.LIVE_TV) {
             return false
         }
         if (movieControlsBar.visibility == View.VISIBLE && movieControlsButtons.visibility != View.VISIBLE) {
@@ -1759,7 +1759,7 @@ class MainActivity : FragmentActivity() {
         focusControls: Boolean = true,
         allowWhenControlsVisible: Boolean = false
     ): Boolean {
-        if (currentState != UiState.FULL_SCREEN || currentMode == ContentMode.LIVE_TV || currentVodResumeKey == null) {
+        if (currentState != UiState.FULL_SCREEN || currentMode == ContentMode.LIVE_TV) {
             return false
         }
         if (!allowWhenControlsVisible && isPlaybackOverlayOpen()) {

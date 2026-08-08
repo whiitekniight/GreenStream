@@ -1,7 +1,7 @@
 {
-  "versionCode": 72,
-  "versionName": "1.9.36",
-  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.36",
-  "notes": "Adds manual Favorites channel reordering while preserving independent ordering in regular channel groups."
+  "versionCode": 73,
+  "versionName": "1.9.37",
+  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.37",
+  "notes": "Restores simple Left/Right remote seeking with the visible timeline during fullscreen movie and series playback."
 }
 
