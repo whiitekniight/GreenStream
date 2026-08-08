@@ -1,7 +1,7 @@
 {
-  "versionCode": 71,
-  "versionName": "1.9.35",
-  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.35",
-  "notes": "Widens the TV guide timeline and EPG program bars so 30-minute shows are less cluttered and easier to read."
+  "versionCode": 72,
+  "versionName": "1.9.36",
+  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.36",
+  "notes": "Adds manual Favorites channel reordering while preserving independent ordering in regular channel groups."
 }
 

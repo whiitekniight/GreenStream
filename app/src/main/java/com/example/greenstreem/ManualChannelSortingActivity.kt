@@ -65,7 +65,7 @@ class ManualChannelSortingActivity : AppCompatActivity() {
             .enqueue(object : Callback<List<XtreamCategory>> {
                 override fun onResponse(call: Call<List<XtreamCategory>>, response: Response<List<XtreamCategory>>) {
                     if (!response.isSuccessful) return
-                    liveCategories = response.body().orEmpty()
+                    liveCategories = listOf(FAVORITES_CATEGORY) + response.body().orEmpty()
                     val saved = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
                         .getString(KEY_MANUAL_SORT_GROUP_ID, null)
                     val initial = liveCategories.firstOrNull { it.id == saved } ?: liveCategories.firstOrNull()
@@ -92,7 +92,6 @@ class ManualChannelSortingActivity : AppCompatActivity() {
     }
 
     private fun loadChannelsForGroup(category: XtreamCategory) {
-        val service = XtreamManager.getService() ?: return
         selectedCategoryId = category.id
         selectedCategoryName = category.name
         findViewById<TextView>(R.id.tvTitle).text = "Sort Channels: ${category.name}"
@@ -100,6 +99,26 @@ class ManualChannelSortingActivity : AppCompatActivity() {
             .edit()
             .putString(KEY_MANUAL_SORT_GROUP_ID, category.id)
             .apply()
+
+        if (category.id == FAVORITES_CATEGORY.id) {
+            lifecycleScope.launch {
+                val favorites = db.favoriteDao().getAll().first()
+                val mapped = favorites.map { favorite ->
+                    Channel(
+                        id = favorite.streamId.toLong(),
+                        name = favorite.name,
+                        group = FAVORITES_CATEGORY.id,
+                        logoUrl = favorite.streamIcon,
+                        streamUrl = "",
+                        epgId = favorite.epgId
+                    )
+                }
+                showChannelsInSavedOrder(category.id, mapped)
+            }
+            return
+        }
+
+        val service = XtreamManager.getService() ?: return
 
         service.getLiveStreams(XtreamManager.username, XtreamManager.password, category.id)
             .enqueue(object : Callback<List<XtreamLiveStream>> {
@@ -120,21 +139,25 @@ class ManualChannelSortingActivity : AppCompatActivity() {
                                     number = stream.num
                                 )
                             }
-                        val orderMap = db.channelOrderDao().getOrderForGroup(category.id).first()
-                            .associateBy({ it.channelId }, { it.position })
-                        val sorted = mapped.sortedWith(
-                            compareBy<Channel> { orderMap[it.id] ?: Int.MAX_VALUE }
-                                .thenBy { it.number ?: Int.MAX_VALUE }
-                                .thenBy { it.name.lowercase() }
-                        )
-                        channels.clear()
-                        channels.addAll(sorted)
-                        adapter?.notifyDataSetChanged()
+                        showChannelsInSavedOrder(category.id, mapped)
                     }
                 }
 
                 override fun onFailure(call: Call<List<XtreamLiveStream>>, t: Throwable) {}
             })
+    }
+
+    private suspend fun showChannelsInSavedOrder(groupId: String, mapped: List<Channel>) {
+        val orderMap = db.channelOrderDao().getOrderForGroup(groupId).first()
+            .associateBy({ it.channelId }, { it.position })
+        val sorted = mapped.sortedWith(
+            compareBy<Channel> { orderMap[it.id] ?: Int.MAX_VALUE }
+                .thenBy { it.number ?: Int.MAX_VALUE }
+                .thenBy { it.name.lowercase() }
+        )
+        channels.clear()
+        channels.addAll(sorted)
+        adapter?.notifyDataSetChanged()
     }
 
     private fun saveOrder() {
@@ -272,5 +295,6 @@ class ManualChannelSortingActivity : AppCompatActivity() {
 
     companion object {
         private const val KEY_MANUAL_SORT_GROUP_ID = "manual_sort_group_id"
+        private val FAVORITES_CATEGORY = XtreamCategory("favorites", "Favorites", 0)
     }
 }

@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.KeyEvent
 import android.util.TypedValue
@@ -23,6 +24,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
@@ -57,6 +59,9 @@ class SearchActivity : AppCompatActivity() {
     private var recentQueries: MutableList<String> = mutableListOf()
     private val searchHandler = Handler(Looper.getMainLooper())
     private var searchRunnable: Runnable? = null
+    private var dataRefreshRunnable: Runnable? = null
+    private var movieCategoryFetchStarted = false
+    private var seriesCategoryFetchStarted = false
     private var hasActiveSearch = false
     private var lastSearchQuery: String = ""
     private var pendingFocusPosition: Int = RecyclerView.NO_POSITION
@@ -177,6 +182,7 @@ class SearchActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         searchRunnable?.let { searchHandler.removeCallbacks(it) }
+        dataRefreshRunnable?.let { searchHandler.removeCallbacks(it) }
         super.onDestroy()
     }
 
@@ -203,52 +209,99 @@ class SearchActivity : AppCompatActivity() {
         service.getVodStreams(user, pass).enqueue(object : Callback<List<XtreamVodStream>> {
             override fun onResponse(call: Call<List<XtreamVodStream>>, response: Response<List<XtreamVodStream>>) {
                 if (response.isSuccessful) {
-                    mergeMovies(response.body().orEmpty())
+                    val movies = response.body().orEmpty()
+                    mergeMovies(movies)
                     rerunVisibleSearch()
+                    if (movies.isEmpty()) fetchMoviesByCategory(service, user, pass)
                 }
             }
-            override fun onFailure(call: Call<List<XtreamVodStream>>, t: Throwable) {}
-        })
-        service.getVodCategories(user, pass).enqueue(object : Callback<List<XtreamCategory>> {
-            override fun onResponse(call: Call<List<XtreamCategory>>, response: Response<List<XtreamCategory>>) {
-                if (!response.isSuccessful) return
-                response.body().orEmpty().forEach { category ->
-                    service.getVodStreams(user, pass, category.id).enqueue(object : Callback<List<XtreamVodStream>> {
-                        override fun onResponse(call: Call<List<XtreamVodStream>>, response: Response<List<XtreamVodStream>>) {
-                            if (response.isSuccessful) {
-                                mergeMovies(response.body().orEmpty())
-                                rerunVisibleSearch()
-                            }
-                        }
-                        override fun onFailure(call: Call<List<XtreamVodStream>>, t: Throwable) {}
-                    })
-                }
+            override fun onFailure(call: Call<List<XtreamVodStream>>, t: Throwable) {
+                fetchMoviesByCategory(service, user, pass)
             }
-            override fun onFailure(call: Call<List<XtreamCategory>>, t: Throwable) {}
         })
 
         // Fetch Series
         service.getSeries(user, pass).enqueue(object : Callback<List<XtreamSeries>> {
             override fun onResponse(call: Call<List<XtreamSeries>>, response: Response<List<XtreamSeries>>) {
                 if (response.isSuccessful) {
-                    mergeSeries(response.body().orEmpty())
+                    val series = response.body().orEmpty()
+                    mergeSeries(series)
                     rerunVisibleSearch()
+                    if (series.isEmpty()) fetchSeriesByCategory(service, user, pass)
                 }
             }
-            override fun onFailure(call: Call<List<XtreamSeries>>, t: Throwable) {}
+            override fun onFailure(call: Call<List<XtreamSeries>>, t: Throwable) {
+                fetchSeriesByCategory(service, user, pass)
+            }
         })
+
+        // Let the fast all-content endpoints populate results first, then expand
+        // in the background for providers whose unfiltered response is incomplete.
+        searchHandler.postDelayed({
+            fetchMoviesByCategory(service, user, pass)
+            fetchSeriesByCategory(service, user, pass)
+        }, 1_500L)
+    }
+
+    private fun fetchMoviesByCategory(service: XtreamService, user: String, pass: String) {
+        if (movieCategoryFetchStarted) return
+        movieCategoryFetchStarted = true
+        service.getVodCategories(user, pass).enqueue(object : Callback<List<XtreamCategory>> {
+            override fun onResponse(call: Call<List<XtreamCategory>>, response: Response<List<XtreamCategory>>) {
+                if (!response.isSuccessful) return
+                val categories = response.body().orEmpty()
+                if (categories.isEmpty()) return
+                val collected = ArrayList<XtreamVodStream>()
+                var remaining = categories.size
+                fun finishCategory(movies: List<XtreamVodStream>) {
+                    collected.addAll(movies)
+                    remaining--
+                    if (remaining == 0) {
+                        mergeMovies(collected)
+                        rerunVisibleSearch()
+                    }
+                }
+                categories.forEach { category ->
+                    service.getVodStreams(user, pass, category.id).enqueue(object : Callback<List<XtreamVodStream>> {
+                        override fun onResponse(call: Call<List<XtreamVodStream>>, response: Response<List<XtreamVodStream>>) {
+                            finishCategory(if (response.isSuccessful) response.body().orEmpty() else emptyList())
+                        }
+                        override fun onFailure(call: Call<List<XtreamVodStream>>, t: Throwable) {
+                            finishCategory(emptyList())
+                        }
+                    })
+                }
+            }
+            override fun onFailure(call: Call<List<XtreamCategory>>, t: Throwable) {}
+        })
+    }
+
+    private fun fetchSeriesByCategory(service: XtreamService, user: String, pass: String) {
+        if (seriesCategoryFetchStarted) return
+        seriesCategoryFetchStarted = true
         service.getSeriesCategories(user, pass).enqueue(object : Callback<List<XtreamCategory>> {
             override fun onResponse(call: Call<List<XtreamCategory>>, response: Response<List<XtreamCategory>>) {
                 if (!response.isSuccessful) return
-                response.body().orEmpty().forEach { category ->
+                val categories = response.body().orEmpty()
+                if (categories.isEmpty()) return
+                val collected = ArrayList<XtreamSeries>()
+                var remaining = categories.size
+                fun finishCategory(series: List<XtreamSeries>) {
+                    collected.addAll(series)
+                    remaining--
+                    if (remaining == 0) {
+                        mergeSeries(collected)
+                        rerunVisibleSearch()
+                    }
+                }
+                categories.forEach { category ->
                     service.getSeries(user, pass, category.id).enqueue(object : Callback<List<XtreamSeries>> {
                         override fun onResponse(call: Call<List<XtreamSeries>>, response: Response<List<XtreamSeries>>) {
-                            if (response.isSuccessful) {
-                                mergeSeries(response.body().orEmpty())
-                                rerunVisibleSearch()
-                            }
+                            finishCategory(if (response.isSuccessful) response.body().orEmpty() else emptyList())
                         }
-                        override fun onFailure(call: Call<List<XtreamSeries>>, t: Throwable) {}
+                        override fun onFailure(call: Call<List<XtreamSeries>>, t: Throwable) {
+                            finishCategory(emptyList())
+                        }
                     })
                 }
             }
@@ -295,15 +348,17 @@ class SearchActivity : AppCompatActivity() {
     private fun scheduleSearch(query: String) {
         searchRunnable?.let { searchHandler.removeCallbacks(it) }
         searchRunnable = Runnable { performSearch(query, saveQuery = false) }
-        searchHandler.postDelayed(searchRunnable!!, 350L)
+        searchHandler.postDelayed(searchRunnable!!, 175L)
     }
 
     private fun rerunVisibleSearch() {
         val query = etSearch.text?.toString().orEmpty()
-        if (rvResults.hasFocus()) return
-        if (query.trim().length >= 2 && query == lastSearchQuery) {
-            performSearch(query, saveQuery = false)
+        if (query.trim().length < 2 || query != lastSearchQuery) return
+        dataRefreshRunnable?.let { searchHandler.removeCallbacks(it) }
+        dataRefreshRunnable = Runnable {
+            performSearch(etSearch.text?.toString().orEmpty(), saveQuery = false)
         }
+        searchHandler.postDelayed(dataRefreshRunnable!!, 75L)
     }
 
     private fun submitSearchFromKeyboard() {
@@ -373,7 +428,7 @@ class SearchActivity : AppCompatActivity() {
             return
         }
         lastSearchQuery = query
-        val focusedPosition = currentSearchFocusPosition()
+        val focusAnchor = currentSearchFocusAnchor()
 
         val filteredChannels = allChannels.asSequence()
             .filter { it.name.contains(normalized, ignoreCase = true) }
@@ -414,7 +469,7 @@ class SearchActivity : AppCompatActivity() {
             .take(120)
             .toList()
 
-        searchAdapter.setResults(
+        val resultsChanged = searchAdapter.setResults(
             filteredChannels,
             (filteredMovies + filteredM3uMovies).distinctBy { it.streamId }.take(120),
             (filteredSeries + filteredM3uSeries).distinctBy { it.seriesId }.take(120),
@@ -422,8 +477,15 @@ class SearchActivity : AppCompatActivity() {
         )
         hasActiveSearch = true
         if (saveQuery) saveRecentQuery(normalized)
-        if (focusedPosition != RecyclerView.NO_POSITION) {
-            focusSearchItemAtOrAfter(focusedPosition)
+        if (resultsChanged && focusAnchor != null) {
+            rvResults.post {
+                if (focusAnchor.key != null && currentSearchFocusAnchor()?.key == focusAnchor.key) return@post
+                val target = focusAnchor.key
+                    ?.let(searchAdapter::positionForFocusKey)
+                    ?.takeIf { it != RecyclerView.NO_POSITION }
+                    ?: searchAdapter.focusablePositionAtOrAfter(focusAnchor.position)
+                if (target != RecyclerView.NO_POSITION) queueSearchFocus(target)
+            }
         }
     }
 
@@ -594,18 +656,14 @@ class SearchActivity : AppCompatActivity() {
 
     private fun String.urlEncode(): String = URLEncoder.encode(this, "UTF-8")
 
-    private fun currentSearchFocusPosition(): Int {
-        val focused = currentFocus ?: return RecyclerView.NO_POSITION
-        if (!rvResults.hasFocus() || focused === etSearch) return RecyclerView.NO_POSITION
-        val holder = rvResults.findContainingViewHolder(focused)
-        return holder?.bindingAdapterPosition?.takeIf { it != RecyclerView.NO_POSITION }
-            ?: RecyclerView.NO_POSITION
-    }
+    private data class SearchFocusAnchor(val key: String?, val position: Int)
 
-    private fun focusSearchItemAtOrAfter(position: Int) {
-        val target = searchAdapter.focusablePositionAtOrAfter(position)
-        if (target == RecyclerView.NO_POSITION) return
-        queueSearchFocus(target)
+    private fun currentSearchFocusAnchor(): SearchFocusAnchor? {
+        val focused = currentFocus ?: return null
+        if (!rvResults.hasFocus() || focused === etSearch) return null
+        val holder = rvResults.findContainingViewHolder(focused)
+        val position = holder?.bindingAdapterPosition?.takeIf { it != RecyclerView.NO_POSITION } ?: return null
+        return SearchFocusAnchor(searchAdapter.focusKeyAt(position), position)
     }
 
     private fun queueSearchFocus(position: Int) {
@@ -1017,6 +1075,16 @@ class SearchActivity : AppCompatActivity() {
                 ?: RecyclerView.NO_POSITION
         }
 
+        fun focusKeyAt(position: Int): String? {
+            return items.getOrNull(position)?.let(::focusKeyFor)
+        }
+
+        fun positionForFocusKey(key: String): Int {
+            return items.indexOfFirst { focusKeyFor(it) == key }
+                .takeIf { it >= 0 }
+                ?: RecyclerView.NO_POSITION
+        }
+
         fun nextFocusablePosition(position: Int): Int {
             return verticalFocusablePosition(position, down = true)
         }
@@ -1032,6 +1100,10 @@ class SearchActivity : AppCompatActivity() {
                     .firstOrNull { items[it] is XtreamSeries }
                 if (firstSeries != null) return firstSeries
             }
+            if (!down && items[position] is XtreamSeries) {
+                val firstMovie = items.indexOfFirst { it is XtreamVodStream }
+                if (firstMovie in 0 until position) return firstMovie
+            }
             val step = if (isPosterItem(items[position])) SEARCH_GRID_SPAN_COUNT else 1
             val firstCandidate = position + if (down) step else -step
             val boundaryRange = if (down) {
@@ -1041,7 +1113,12 @@ class SearchActivity : AppCompatActivity() {
             }
             val crossesSection = boundaryRange.any { it in items.indices && items[it] is String }
             if (crossesSection) {
-                return boundaryRange.firstOrNull { it in items.indices && items[it] !is String }
+                val sectionRange = if (down) {
+                    (position + 1)..items.lastIndex
+                } else {
+                    (position - 1) downTo 0
+                }
+                return sectionRange.firstOrNull { it in items.indices && items[it] !is String }
                     ?: RecyclerView.NO_POSITION
             }
             val range = if (down) {
@@ -1060,6 +1137,18 @@ class SearchActivity : AppCompatActivity() {
 
         private fun isPosterItem(item: Any): Boolean {
             return item is XtreamVodStream || item is XtreamSeries
+        }
+
+        private fun focusKeyFor(item: Any): String? {
+            return when (item) {
+                is Channel -> "channel:${item.id}"
+                is ProgramSearchResult -> "program:${item.channel.id}:${item.title}"
+                is XtreamVodStream -> "movie:${item.directUrl ?: item.streamId}"
+                is XtreamSeries -> "series:${item.seriesId}"
+                is RecentSearchQuery -> "recent:${item.query}"
+                is ClearRecentSearches -> "recent:clear"
+                else -> null
+            }
         }
 
         fun setRecentQueries(queries: List<String>) {
@@ -1083,7 +1172,7 @@ class SearchActivity : AppCompatActivity() {
             movies: List<XtreamVodStream>,
             series: List<XtreamSeries>,
             programs: List<ProgramSearchResult>
-        ) {
+        ): Boolean {
             val newList = mutableListOf<Any>()
             if (channels.isNotEmpty()) {
                 newList.add("Live Channels")
@@ -1101,9 +1190,25 @@ class SearchActivity : AppCompatActivity() {
                 newList.add("Series")
                 newList.addAll(series)
             }
-            if (items == newList) return
+            if (items == newList) return false
+            val oldItems = items
+            val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                override fun getOldListSize(): Int = oldItems.size
+                override fun getNewListSize(): Int = newList.size
+                override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                    return itemKey(oldItems[oldItemPosition]) == itemKey(newList[newItemPosition])
+                }
+                override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                    return oldItems[oldItemPosition] == newList[newItemPosition]
+                }
+            })
             items = newList
-            notifyDataSetChanged()
+            diff.dispatchUpdatesTo(this)
+            return true
+        }
+
+        private fun itemKey(item: Any): String {
+            return focusKeyFor(item) ?: "header:$item"
         }
 
         override fun getItemViewType(position: Int): Int {
@@ -1234,6 +1339,7 @@ class SearchActivity : AppCompatActivity() {
                         }
                         is XtreamVodStream -> {
                             tvName.text = item.name
+                            configurePosterMarquee(holder, tvName)
                             Glide.with(holder.itemView).load(item.streamIcon).override(130, 195).into(ivLogo)
                             holder.itemView.setOnClickListener { onMovieClick(item) }
                             holder.itemView.setOnLongClickListener {
@@ -1243,6 +1349,7 @@ class SearchActivity : AppCompatActivity() {
                         }
                         is XtreamSeries -> {
                             tvName.text = item.name
+                            configurePosterMarquee(holder, tvName)
                             Glide.with(holder.itemView).load(item.cover).override(130, 195).into(ivLogo)
                             holder.itemView.setOnClickListener { onSeriesClick(item) }
                             holder.itemView.setOnLongClickListener {
@@ -1252,6 +1359,19 @@ class SearchActivity : AppCompatActivity() {
                         }
                     }
                 }
+            }
+        }
+
+        private fun configurePosterMarquee(holder: ItemVH, titleView: TextView) {
+            titleView.apply {
+                isSingleLine = true
+                ellipsize = TextUtils.TruncateAt.MARQUEE
+                marqueeRepeatLimit = -1
+                setHorizontallyScrolling(true)
+                isSelected = holder.itemView.hasFocus()
+            }
+            holder.itemView.setOnFocusChangeListener { _, hasFocus ->
+                titleView.isSelected = hasFocus
             }
         }
 
@@ -1268,6 +1388,8 @@ class SearchActivity : AppCompatActivity() {
             super.onViewRecycled(holder)
             holder.itemView.setOnClickListener(null)
             holder.itemView.setOnLongClickListener(null)
+            holder.itemView.setOnFocusChangeListener(null)
+            holder.itemView.findViewById<TextView>(R.id.tvPosterTitle)?.isSelected = false
         }
     }
 

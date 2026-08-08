@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         XmltvAliasEntity::class,
         XmltvProgramEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -43,7 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "iptv_database"
                 )
-                .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -109,6 +109,29 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_xmltv_programs_channelKey_startTimestamp ON xmltv_programs(channelKey, startTimestamp)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_xmltv_programs_channelKey_stopTimestamp ON xmltv_programs(channelKey, stopTimestamp)")
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE channel_order_new (
+                        channelId INTEGER NOT NULL,
+                        groupId TEXT NOT NULL,
+                        position INTEGER NOT NULL,
+                        PRIMARY KEY(channelId, groupId)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO channel_order_new (channelId, groupId, position)
+                    SELECT channelId, groupId, position FROM channel_order
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE channel_order")
+                db.execSQL("ALTER TABLE channel_order_new RENAME TO channel_order")
             }
         }
     }
