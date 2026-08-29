@@ -180,17 +180,15 @@ class MainActivity : FragmentActivity() {
         .override(72, 72)
         .dontAnimate()
     private val libraryPosterOptions = RequestOptions()
-        .format(DecodeFormat.PREFER_RGB_565)
-        .disallowHardwareConfig()
-        .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-        .override(220, 330)
+        .format(DecodeFormat.PREFER_ARGB_8888)
+        .diskCacheStrategy(DiskCacheStrategy.ALL)
+        .override(440, 660)
         .centerCrop()
         .dontAnimate()
     private val libraryBackdropOptions = RequestOptions()
-        .format(DecodeFormat.PREFER_RGB_565)
-        .disallowHardwareConfig()
-        .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-        .override(480, 270)
+        .format(DecodeFormat.PREFER_ARGB_8888)
+        .diskCacheStrategy(DiskCacheStrategy.ALL)
+        .override(1280, 720)
         .dontAnimate()
     private val miniInfoHandler = Handler(Looper.getMainLooper())
     private var miniInfoRunnable: Runnable? = null
@@ -248,12 +246,21 @@ class MainActivity : FragmentActivity() {
     private val movieControlsTimeoutMs = 6500L
     private var suppressBackToCategoriesUntilMs = 0L
     private var suppressCategoriesToNavUntilMs = 0L
+    private var suppressCategoriesToGridUntilMs = 0L
 
     // In-memory caches
     private var cachedRawCategories: List<XtreamCategory>? = null
     private var cachedLiveStreams: Map<String, List<XtreamLiveStream>>? = null
     private var cachedVodStreams: Map<String, List<XtreamVodStream>>? = null
     private var cachedSeries: Map<String, List<XtreamSeries>>? = null
+    private val vodDetailsCache = object : LinkedHashMap<Int, XtreamVodDetailsInfo>(96, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, XtreamVodDetailsInfo>?): Boolean = size > 96
+    }
+    private val seriesDetailsCache = object : LinkedHashMap<Int, XtreamSeriesDetailsInfo>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, XtreamSeriesDetailsInfo>?): Boolean = size > 64
+    }
+    private val vodDetailsPrefetchInFlight = mutableSetOf<Int>()
+    private val seriesDetailsPrefetchInFlight = mutableSetOf<Int>()
     private var cachedM3uChannels: List<Channel>? = null
     private var cachedXtreamM3uPlusChannels: List<Channel>? = null
     private var currentLiveChannels: List<Channel> = emptyList()
@@ -283,6 +290,9 @@ class MainActivity : FragmentActivity() {
     private var seriesEpisodeTitles: List<String> = emptyList()
     private var seriesEpisodeResumeKeys: List<String> = emptyList()
     private var seriesEpisodeIndex = -1
+    private var seriesReturnId = -1
+    private var seriesReturnName: String? = null
+    private var seriesReturnCover: String? = null
     private var nextEpisodePromptShownForKey: String? = null
     private var lastUnsupportedVodAudioSummary: String = ""
     private var pendingEpgRefresh = false
@@ -383,16 +393,12 @@ class MainActivity : FragmentActivity() {
         onCategoryFocus = { category, position -> 
             if (isPlaylistHeader(category)) {
                 lastCategoryPosition = position
-                if (currentMode == ContentMode.LIVE_TV) {
-                    centerRecyclerPosition(rvCategories, position, 56)
-                }
+                centerRecyclerPosition(rvCategories, position, dp(56))
                 return@CategoryAdapter
             }
             lastCategoryPosition = position
             saveLastCategoryForCurrentMode(category.id, position)
-            if (currentMode == ContentMode.LIVE_TV) {
-                centerRecyclerPosition(rvCategories, position, 56)
-            }
+            centerRecyclerPosition(rvCategories, position, dp(56))
             onCategoryFocused(category) 
         },
         onCategoryLongClick = { category, position, anchor ->
@@ -408,6 +414,7 @@ class MainActivity : FragmentActivity() {
             lastGridPosition = position
             updateLibraryPositionCount()
             requestVodInfoUpdate(item)
+            prefetchLibraryDetailsAround(position)
         },
         onLongClick = { item -> showVodOptions(item) },
         onResolveMoviePoster = { movie -> requestMoviePosterForGrid(movie) }
@@ -818,6 +825,7 @@ class MainActivity : FragmentActivity() {
         val options = arrayOf(
             "Channel options",
             "Cycle aspect ratio",
+            "Video quality",
             "Audio tracks",
             "Subtitle tracks",
             "Sleep timer"
@@ -831,9 +839,10 @@ class MainActivity : FragmentActivity() {
                         if (channel != null) showChannelOptions(channel)
                     }
                     1 -> cycleAspectRatio()
-                    2 -> showAudioTrackDialog()
-                    3 -> showSubtitleTrackDialog()
-                    4 -> showSleepTimerDialog()
+                    2 -> showVideoTrackDialog()
+                    3 -> showAudioTrackDialog()
+                    4 -> showSubtitleTrackDialog()
+                    5 -> showSleepTimerDialog()
                 }
             }
             .show()
@@ -845,6 +854,81 @@ class MainActivity : FragmentActivity() {
         val isSelected: Boolean,
         val isSupported: Boolean = true
     )
+
+    private fun showVideoTrackDialog() {
+        val currentPlayer = player ?: run {
+            Toast.makeText(this, "Player not ready", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val groups = currentPlayer.currentTracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
+        val videoChoices = groups.flatMap { group ->
+            (0 until group.length).map { idx ->
+                val format = group.getTrackFormat(idx)
+                val resolution = if (format.width > 0 && format.height > 0) {
+                    "${format.width}x${format.height}"
+                } else {
+                    "Unknown resolution"
+                }
+                val quality = when {
+                    format.height >= 2160 -> "4K"
+                    format.height >= 1080 -> "1080p"
+                    format.height >= 720 -> "720p"
+                    format.height > 0 -> "${format.height}p"
+                    else -> null
+                }
+                val bitrate = format.bitrate.takeIf { it > 0 }?.let {
+                    String.format(Locale.US, "%.1f Mbps", it / 1_000_000f)
+                }
+                val frameRate = format.frameRate.takeIf { it > 0f }?.let {
+                    String.format(Locale.US, "%.0f fps", it)
+                }
+                val codec = format.sampleMimeType
+                    ?.substringAfterLast('.')
+                    ?.uppercase(Locale.getDefault())
+                val supported = group.isTrackSupported(idx)
+                val details = listOfNotNull(quality, resolution, bitrate, frameRate, codec)
+                    .distinct()
+                    .joinToString(" • ")
+                TrackChoice(
+                    label = details + if (supported) "" else " (not supported)",
+                    override = if (supported) TrackSelectionOverride(group.mediaTrackGroup, listOf(idx)) else null,
+                    isSelected = group.isTrackSelected(idx),
+                    isSupported = supported
+                )
+            }
+        }
+        if (videoChoices.isEmpty()) {
+            Toast.makeText(this, "No video track information available yet", Toast.LENGTH_LONG).show()
+            return
+        }
+        val hasVideoOverride = currentPlayer.trackSelectionParameters.overrides.values.any {
+            it.mediaTrackGroup.type == C.TRACK_TYPE_VIDEO
+        }
+        val choices = listOf(
+            TrackChoice("Auto (recommended)", null, !hasVideoOverride)
+        ) + videoChoices
+        val selectedIndex = choices.indexOfFirst { it.isSelected }.coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("Video quality")
+            .setSingleChoiceItems(choices.map { it.label }.toTypedArray(), selectedIndex) { dialog, which ->
+                val choice = choices[which]
+                if (!choice.isSupported) {
+                    Toast.makeText(this, "This video quality is not supported on this device", Toast.LENGTH_LONG).show()
+                    dialog.dismiss()
+                    return@setSingleChoiceItems
+                }
+                val builder = currentPlayer.trackSelectionParameters
+                    .buildUpon()
+                    .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+                currentPlayer.trackSelectionParameters = choice.override
+                    ?.let { builder.addOverride(it).build() }
+                    ?: builder.build()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 
     private fun showAudioTrackDialog() {
         val trackInfo = player?.currentTracks ?: run {
@@ -1401,6 +1485,7 @@ class MainActivity : FragmentActivity() {
             applyDisplayModeToViews()
             player?.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    updateCloudPlaybackActivity()
                     updateKeepScreenAwake()
                     if (playbackState == Player.STATE_READY && currentVodResumeKey == null && currentChannel != null) {
                         currentLivePlaybackUrl?.let { rememberLiveStreamFormatForUrl(it) }
@@ -1416,6 +1501,7 @@ class MainActivity : FragmentActivity() {
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    updateCloudPlaybackActivity()
                     updateKeepScreenAwake()
                     if (movieControlsBar.visibility == View.VISIBLE) refreshMovieControls()
                 }
@@ -1504,6 +1590,10 @@ class MainActivity : FragmentActivity() {
             keepMovieControlsVisible()
             showAudioTrackDialog()
         }
+        findViewById<TextView>(R.id.btnMovieQuality)?.setOnClickListener {
+            keepMovieControlsVisible()
+            showVideoTrackDialog()
+        }
         findViewById<TextView>(R.id.btnMovieSubtitles)?.setOnClickListener {
             keepMovieControlsVisible()
             showSubtitleTrackDialog()
@@ -1552,6 +1642,13 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun setupNextEpisodePrompt() {
+        val prefs = getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_AUTO_NEXT_EPISODE_DEFAULT_MIGRATED, false)) {
+            prefs.edit()
+                .putBoolean(KEY_AUTO_NEXT_EPISODE, true)
+                .putBoolean(KEY_AUTO_NEXT_EPISODE_DEFAULT_MIGRATED, true)
+                .apply()
+        }
         btnNextEpisodeStart.setOnClickListener {
             playNextSeriesEpisode()
         }
@@ -1623,19 +1720,41 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleVodEnded() {
-        currentVodResumeKey?.let { key ->
+        val endedResumeKey = currentVodResumeKey
+        val endedSeriesPlayback = endedResumeKey?.startsWith("series_") == true || seriesReturnId >= 0
+        endedResumeKey?.let { key ->
             markVodWatched(key)
             clearVodResumeByKey(key)
         }
-        if (hasNextSeriesEpisode()) {
-            if (isAutoNextEpisodeEnabled()) {
-                playNextSeriesEpisode()
-            } else {
-                showNextEpisodePrompt(focusStart = true)
-            }
+        if (hasNextSeriesEpisode() && isAutoNextEpisodeEnabled()) {
+            playNextSeriesEpisode()
+        } else if (endedSeriesPlayback) {
+            returnToSeriesEpisodeList()
         } else {
             hideNextEpisodePrompt()
         }
+    }
+
+    private fun returnToSeriesEpisodeList() {
+        val returnId = seriesReturnId.takeIf { it >= 0 }
+            ?: currentVodResumeKey
+                ?.takeIf { it.startsWith("series_") }
+                ?.substringAfter("series_")
+                ?.substringBefore("_s")
+                ?.toIntOrNull()
+            ?: run {
+                hideNextEpisodePrompt()
+                return
+            }
+        hideNextEpisodePrompt()
+        stopVodResumeTicker()
+        player?.stop()
+        currentVodResumeKey = null
+        launchInternalActivity(Intent(this, SeriesDetailsActivity::class.java).apply {
+            putExtra("series_id", returnId)
+            putExtra("series_name", seriesReturnName.orEmpty())
+            putExtra("series_cover", seriesReturnCover)
+        })
     }
 
     private fun playNextSeriesEpisode(): Boolean {
@@ -2689,6 +2808,10 @@ class MainActivity : FragmentActivity() {
             cachedLiveStreams = null
             cachedVodStreams = null
             cachedSeries = null
+            vodDetailsCache.clear()
+            seriesDetailsCache.clear()
+            vodDetailsPrefetchInFlight.clear()
+            seriesDetailsPrefetchInFlight.clear()
             cachedM3uChannels = null
             cachedXtreamM3uPlusChannels = null
             currentLiveChannels = emptyList()
@@ -3045,6 +3168,14 @@ class MainActivity : FragmentActivity() {
             prefetchAdjacentLiveGroups(categoryId)
             refreshRecentChannelsRow()
         }
+    }
+
+    private fun updateCloudPlaybackActivity() {
+        val currentPlayer = player
+        val active = currentPlayer != null && currentPlayer.playWhenReady &&
+            currentPlayer.playbackState != Player.STATE_IDLE &&
+            currentPlayer.playbackState != Player.STATE_ENDED
+        CloudBackupManager.setPlaybackActive(active)
     }
 
     private fun maybeRunPendingEpgRefresh() {
@@ -4488,14 +4619,18 @@ class MainActivity : FragmentActivity() {
                     vodInfoRunnable = Runnable {
                         if (token == vodInfoRequestToken) loadLibraryArtwork(item.streamIcon)
                     }
-                    vodInfoHandler.postDelayed(vodInfoRunnable!!, 650L)
+                    vodInfoHandler.postDelayed(vodInfoRunnable!!, 180L)
+                    return
+                }
+                vodDetailsCache[item.streamId]?.let { info ->
+                    applyVodDetails(item, info)
                     return
                 }
                 val service = XtreamManager.getService() ?: run {
                     vodInfoRunnable = Runnable {
                         if (token == vodInfoRequestToken) loadLibraryArtwork(item.streamIcon)
                     }
-                    vodInfoHandler.postDelayed(vodInfoRunnable!!, 650L)
+                    vodInfoHandler.postDelayed(vodInfoRunnable!!, 180L)
                     return
                 }
                 vodInfoRunnable = Runnable {
@@ -4508,6 +4643,7 @@ class MainActivity : FragmentActivity() {
                             if (token != vodInfoRequestToken || call.isCanceled) return
                             if (response.isSuccessful) {
                                 val info = response.body()?.info
+                                if (info != null) vodDetailsCache[item.streamId] = info
                                 loadLibraryArtwork(
                                     posterUrl = info?.movieIcon ?: item.streamIcon,
                                     backdropUrl = firstArtworkUrl(info?.backdropPath) ?: info?.movieIcon ?: item.streamIcon
@@ -4535,7 +4671,7 @@ class MainActivity : FragmentActivity() {
                         }
                     })
                 }
-                vodInfoHandler.postDelayed(vodInfoRunnable!!, 650L)
+                vodInfoHandler.postDelayed(vodInfoRunnable!!, 180L)
                 vodInfoHandler.postDelayed({
                     if (token == vodInfoRequestToken && tvProgramDescription.text.toString() == "Loading details...") {
                         tvProgramDescription.text = "Movie details unavailable"
@@ -4550,11 +4686,15 @@ class MainActivity : FragmentActivity() {
                         loadLibraryArtwork(item.cover)
                     }
                 }, 250L)
+                seriesDetailsCache[item.seriesId]?.let { info ->
+                    applySeriesDetails(item, info)
+                    return
+                }
                 val service = XtreamManager.getService() ?: run {
                     vodInfoRunnable = Runnable {
                         if (token == vodInfoRequestToken) loadLibraryArtwork(item.cover)
                     }
-                    vodInfoHandler.postDelayed(vodInfoRunnable!!, 650L)
+                    vodInfoHandler.postDelayed(vodInfoRunnable!!, 180L)
                     return
                 }
                 vodInfoRunnable = Runnable {
@@ -4567,6 +4707,7 @@ class MainActivity : FragmentActivity() {
                             if (token != vodInfoRequestToken || call.isCanceled) return
                             if (response.isSuccessful) {
                                 val info = response.body()?.info
+                                if (info != null) seriesDetailsCache[item.seriesId] = info
                                 loadLibraryArtwork(
                                     posterUrl = info?.cover ?: item.cover,
                                     backdropUrl = firstArtworkUrl(info?.backdropPath) ?: info?.cover ?: item.cover
@@ -4594,7 +4735,7 @@ class MainActivity : FragmentActivity() {
                         }
                     })
                 }
-                vodInfoHandler.postDelayed(vodInfoRunnable!!, 650L)
+                vodInfoHandler.postDelayed(vodInfoRunnable!!, 180L)
                 vodInfoHandler.postDelayed({
                     if (token == vodInfoRequestToken && tvProgramDescription.text.toString() == "Loading details...") {
                         tvProgramDescription.text = "Series details unavailable"
@@ -4604,7 +4745,7 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun requestVodInfoUpdate(item: Any, delayMs: Long = 320L) {
+    private fun requestVodInfoUpdate(item: Any, delayMs: Long = 100L) {
         vodInfoStartRunnable?.let { vodInfoHandler.removeCallbacks(it) }
         vodInfoRunnable?.let { vodInfoHandler.removeCallbacks(it) }
         currentVodInfoCall?.cancel()
@@ -4627,11 +4768,13 @@ class MainActivity : FragmentActivity() {
                 tvProgramTitleLarge.text = item.name
                 tvProgramDescription.text = if (item.directUrl != null) "M3U video" else "Movie"
                 tvProgramTimeRange.text = item.containerExtension?.uppercase(Locale.getDefault()).orEmpty()
+                loadLibraryArtwork(item.streamIcon)
             }
             is XtreamSeries -> {
                 tvProgramTitleLarge.text = item.name
                 tvProgramDescription.text = "Series"
                 tvProgramTimeRange.text = ""
+                loadLibraryArtwork(item.cover)
             }
         }
     }
@@ -4720,30 +4863,79 @@ class MainActivity : FragmentActivity() {
             })
     }
 
+    private fun prefetchLibraryDetailsAround(position: Int) {
+        val service = XtreamManager.getService() ?: return
+        listOf(position - 1, position + 1, position + 2)
+            .mapNotNull { posterAdapter.getItemAt(it) }
+            .forEach { item ->
+                when (item) {
+                    is XtreamVodStream -> {
+                        if (item.directUrl != null || vodDetailsCache.containsKey(item.streamId) ||
+                            !vodDetailsPrefetchInFlight.add(item.streamId)
+                        ) return@forEach
+                        service.getVodInfo(XtreamManager.username, XtreamManager.password, item.streamId)
+                            .enqueue(object : Callback<XtreamVodInfoResponse> {
+                                override fun onResponse(
+                                    call: Call<XtreamVodInfoResponse>,
+                                    response: Response<XtreamVodInfoResponse>
+                                ) {
+                                    vodDetailsPrefetchInFlight.remove(item.streamId)
+                                    val info = response.body()?.info ?: return
+                                    vodDetailsCache[item.streamId] = info
+                                    val posterUrl = info.movieIcon?.takeIf { it.isNotBlank() }
+                                        ?: firstArtworkUrl(info.backdropPath)
+                                    posterAdapter.updateVodPoster(item.streamId, posterUrl)
+                                }
+
+                                override fun onFailure(call: Call<XtreamVodInfoResponse>, t: Throwable) {
+                                    vodDetailsPrefetchInFlight.remove(item.streamId)
+                                }
+                            })
+                    }
+                    is XtreamSeries -> {
+                        if (seriesDetailsCache.containsKey(item.seriesId) ||
+                            !seriesDetailsPrefetchInFlight.add(item.seriesId)
+                        ) return@forEach
+                        service.getSeriesInfo(XtreamManager.username, XtreamManager.password, item.seriesId)
+                            .enqueue(object : Callback<XtreamSeriesInfoResponse> {
+                                override fun onResponse(
+                                    call: Call<XtreamSeriesInfoResponse>,
+                                    response: Response<XtreamSeriesInfoResponse>
+                                ) {
+                                    seriesDetailsPrefetchInFlight.remove(item.seriesId)
+                                    response.body()?.info?.let { seriesDetailsCache[item.seriesId] = it }
+                                }
+
+                                override fun onFailure(call: Call<XtreamSeriesInfoResponse>, t: Throwable) {
+                                    seriesDetailsPrefetchInFlight.remove(item.seriesId)
+                                }
+                            })
+                    }
+                }
+            }
+    }
+
     private fun loadLibraryArtwork(imageUrl: String?) {
         loadLibraryArtwork(posterUrl = imageUrl, backdropUrl = imageUrl)
     }
 
     private fun loadLibraryArtwork(posterUrl: String?, backdropUrl: String?) {
         val artwork = findViewById<ImageView>(R.id.ivFavoriteStar) ?: return
-        Glide.with(this).clear(artwork)
-        Glide.with(this).clear(ivVodPoster)
-        Glide.with(this).clear(ivVodBackdrop)
         Glide.with(this)
             .load(posterUrl)
-            .placeholder(android.R.drawable.ic_menu_report_image)
+            .placeholder(artwork.drawable ?: getDrawable(android.R.drawable.ic_menu_report_image))
             .error(android.R.drawable.ic_menu_report_image)
             .apply(libraryIconOptions)
             .into(artwork)
         Glide.with(this)
             .load(posterUrl)
-            .placeholder(android.R.drawable.ic_menu_report_image)
+            .placeholder(ivVodPoster.drawable ?: getDrawable(android.R.drawable.ic_menu_report_image))
             .error(android.R.drawable.ic_menu_report_image)
             .apply(libraryPosterOptions)
             .into(ivVodPoster)
         Glide.with(this)
             .load(backdropUrl)
-            .placeholder(android.R.drawable.ic_menu_report_image)
+            .placeholder(ivVodBackdrop.drawable ?: getDrawable(android.R.drawable.ic_menu_report_image))
             .error(android.R.drawable.ic_menu_report_image)
             .apply(libraryBackdropOptions)
             .let { request ->
@@ -5016,9 +5208,34 @@ class MainActivity : FragmentActivity() {
             seriesEpisodeTitles = titles
             seriesEpisodeResumeKeys = keys
             seriesEpisodeIndex = index
+            seriesReturnId = intent?.getIntExtra(EXTRA_SERIES_RETURN_ID, -1) ?: -1
+            seriesReturnName = intent?.getStringExtra(EXTRA_SERIES_RETURN_NAME)
+            seriesReturnCover = intent?.getStringExtra(EXTRA_SERIES_RETURN_COVER)
         } else {
             clearSeriesQueue()
         }
+    }
+
+    private fun applyVodDetails(item: XtreamVodStream, info: XtreamVodDetailsInfo) {
+        loadLibraryArtwork(
+            posterUrl = info.movieIcon ?: item.streamIcon,
+            backdropUrl = firstArtworkUrl(info.backdropPath) ?: info.movieIcon ?: item.streamIcon
+        )
+        tvProgramDescription.text = buildLibraryDescription(info.plot, info.cast, info.director)
+        tvProgramTimeRange.text = buildLibraryMetaLine(info.rating, info.releaseDate, info.duration, info.genre)
+        tvProgramDuration.text = ""
+        updateLibraryPositionCount()
+    }
+
+    private fun applySeriesDetails(item: XtreamSeries, info: XtreamSeriesDetailsInfo) {
+        loadLibraryArtwork(
+            posterUrl = info.cover ?: item.cover,
+            backdropUrl = firstArtworkUrl(info.backdropPath) ?: info.cover ?: item.cover
+        )
+        tvProgramDescription.text = buildLibraryDescription(info.plot, info.cast, info.director)
+        tvProgramTimeRange.text = buildLibraryMetaLine(info.rating, info.releaseDate, null, info.genre)
+        tvProgramDuration.text = ""
+        updateLibraryPositionCount()
     }
 
     private fun clearSeriesQueue() {
@@ -5026,6 +5243,9 @@ class MainActivity : FragmentActivity() {
         seriesEpisodeTitles = emptyList()
         seriesEpisodeResumeKeys = emptyList()
         seriesEpisodeIndex = -1
+        seriesReturnId = -1
+        seriesReturnName = null
+        seriesReturnCover = null
         hideNextEpisodePrompt()
     }
 
@@ -5135,7 +5355,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun returnToCategoriesOnly() {
-        suppressCategoriesToNavUntilMs = 0L
+        suppressCategoriesToNavUntilMs = System.currentTimeMillis() + 350L
         updateUiState(UiState.CATEGORIES)
     }
 
@@ -5147,6 +5367,7 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (handleNextEpisodePromptKey(event)) return true
         if (event.action == KeyEvent.ACTION_DOWN) {
             if (handleFullscreenMovieControlsKey(event.keyCode)) return true
             when (event.keyCode) {
@@ -5165,6 +5386,19 @@ class MainActivity : FragmentActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    private fun handleNextEpisodePromptKey(event: KeyEvent): Boolean {
+        if (!::nextEpisodePrompt.isInitialized || nextEpisodePrompt.visibility != View.VISIBLE) return false
+        if (event.keyCode != KeyEvent.KEYCODE_DPAD_CENTER && event.keyCode != KeyEvent.KEYCODE_ENTER) return false
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            when (currentFocus) {
+                btnNextEpisodeStart -> btnNextEpisodeStart.performClick()
+                btnNextEpisodeAuto -> btnNextEpisodeAuto.performClick()
+                else -> btnNextEpisodeStart.performClick()
+            }
+        }
+        return true
     }
 
     private fun handleFullscreenMovieControlsKey(keyCode: Int): Boolean {
@@ -5302,10 +5536,12 @@ class MainActivity : FragmentActivity() {
                 if (currentState == UiState.NAV_RAIL) {
                     alignLiveCategorySelectionToPlayback()
                     returnToPlayingChannelOnNextGridOpen = (currentMode == ContentMode.LIVE_TV)
+                    suppressCategoriesToGridUntilMs = System.currentTimeMillis() + 350L
                     updateUiState(UiState.CATEGORIES)
                     return true
                 }
                 if (currentState == UiState.CATEGORIES) {
+                    if (System.currentTimeMillis() < suppressCategoriesToGridUntilMs) return true
                     if (currentMode == ContentMode.LIVE_TV && shouldOpenPlayingChannelFromCategories()) {
                         enterLiveGuideAtCurrentChannel()
                     } else {
@@ -5595,6 +5831,12 @@ class MainActivity : FragmentActivity() {
         val currentPos = rv.getChildAdapterPosition(viewInRv)
         if (currentPos == RecyclerView.NO_POSITION) return false
         val adapter = rv.adapter ?: return false
+        if (currentState == UiState.CATEGORIES) {
+            if ((isDown && currentPos == adapter.itemCount - 1) || (!isDown && currentPos == 0)) {
+                return true
+            }
+            return false
+        }
         if (isDown && currentPos == adapter.itemCount - 1) { centerRecyclerPosition(rv, 0, 56); return true }
         else if (!isDown && currentPos == 0) { centerRecyclerPosition(rv, adapter.itemCount - 1, 56); return true }
         return false
@@ -5779,7 +6021,7 @@ class MainActivity : FragmentActivity() {
             val target = preferredPosition.coerceIn(0, items.size - 1)
             lastGridPosition = target
             updateLibraryPositionCount()
-            requestVodInfoUpdate(items[target], delayMs = 220L)
+            requestVodInfoUpdate(items[target], delayMs = 80L)
             scrollPosterRowTo(target, requestFocus = currentState != UiState.CATEGORIES)
         }.onFailure { error ->
             Log.e(TAG, "Failed to show poster items count=${items.size}", error)
@@ -7103,6 +7345,7 @@ class MainActivity : FragmentActivity() {
         private const val KEY_AUDIO_PASSTHROUGH = "player_audio_passthrough"
         private const val KEY_AUDIO_OFFSET_MS = "player_audio_offset_ms"
         private const val KEY_AUTO_NEXT_EPISODE = "player_auto_next_episode"
+        private const val KEY_AUTO_NEXT_EPISODE_DEFAULT_MIGRATED = "player_auto_next_episode_default_migrated_v2"
         private const val NEXT_EPISODE_PROMPT_REMAINING_MS = 10_000L
         private const val VOD_RESUME_TICK_MS = 1_000L
         private const val KEY_TUNNELED_PLAYBACK = "player_tunneled_playback"
@@ -7124,6 +7367,9 @@ class MainActivity : FragmentActivity() {
         private const val EXTRA_SERIES_EPISODE_TITLES = "series_episode_titles"
         private const val EXTRA_SERIES_EPISODE_KEYS = "series_episode_keys"
         private const val EXTRA_SERIES_EPISODE_INDEX = "series_episode_index"
+        private const val EXTRA_SERIES_RETURN_ID = "series_return_id"
+        private const val EXTRA_SERIES_RETURN_NAME = "series_return_name"
+        private const val EXTRA_SERIES_RETURN_COVER = "series_return_cover"
         private const val KEY_RECENT_CHANNELS = "recent_channel_ids"
         private const val KEY_LAST_CATEGORY_ID_LIVE = "last_category_id_live"
         private const val KEY_LAST_CATEGORY_ID_MOVIES = "last_category_id_movies"
@@ -7346,6 +7592,7 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
+        CloudBackupManager.setPlaybackActive(false)
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         saveVodResumeProgress()
         dismissCurrentActionDialog()

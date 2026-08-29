@@ -44,6 +44,7 @@ class SeriesDetailsActivity : AppCompatActivity() {
 
     private var seriesId: Int = -1
     private var seriesName: String = ""
+    private var seriesCover: String? = null
     private var allEpisodes: Map<String, List<XtreamEpisode>> = emptyMap()
     private var currentSeason: SeasonRow? = null
     private val gson = Gson()
@@ -63,6 +64,7 @@ class SeriesDetailsActivity : AppCompatActivity() {
         val name = intent.getStringExtra("series_name")
         val cover = intent.getStringExtra("series_cover")
         seriesName = name.orEmpty()
+        seriesCover = cover
 
         tvName.text = name
         Glide.with(this).load(cover).into(ivCover)
@@ -483,6 +485,9 @@ class SeriesDetailsActivity : AppCompatActivity() {
             intent.putExtra("play_url", url)
             intent.putExtra("media_title", queueItem.episode.title)
             intent.putExtra("resume_key", resumeKey)
+            intent.putExtra(EXTRA_SERIES_RETURN_ID, seriesId)
+            intent.putExtra(EXTRA_SERIES_RETURN_NAME, seriesName)
+            intent.putExtra(EXTRA_SERIES_RETURN_COVER, seriesCover)
             intent.putStringArrayListExtra(EXTRA_SERIES_EPISODE_URLS, ArrayList(queue.map { episodeUrl(it.episode) }))
             intent.putStringArrayListExtra(EXTRA_SERIES_EPISODE_TITLES, ArrayList(queue.map { it.episode.title }))
             intent.putStringArrayListExtra(EXTRA_SERIES_EPISODE_KEYS, ArrayList(queue.map { resumeKeyFor(it.seasonKey, it.episode) }))
@@ -677,6 +682,9 @@ class SeriesDetailsActivity : AppCompatActivity() {
         private const val EXTRA_SERIES_EPISODE_TITLES = "series_episode_titles"
         private const val EXTRA_SERIES_EPISODE_KEYS = "series_episode_keys"
         private const val EXTRA_SERIES_EPISODE_INDEX = "series_episode_index"
+        private const val EXTRA_SERIES_RETURN_ID = "series_return_id"
+        private const val EXTRA_SERIES_RETURN_NAME = "series_return_name"
+        private const val EXTRA_SERIES_RETURN_COVER = "series_return_cover"
         private const val FALLBACK_CACHE_TTL_MS = 24L * 60L * 60L * 1000L
         private const val PLAYLIST_CONNECT_TIMEOUT_MS = 10_000
         private const val PLAYLIST_READ_TIMEOUT_MS = 45_000

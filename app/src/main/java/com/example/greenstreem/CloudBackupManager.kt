@@ -46,6 +46,7 @@ object CloudBackupManager {
     private const val TAG = "GreenStreemCloud"
     private val autoBackupRunning = AtomicBoolean(false)
     private val managementSyncRunning = AtomicBoolean(false)
+    private val playbackActive = AtomicBoolean(false)
     private val lastManagementStateUpload = AtomicLong(0L)
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var cachedManagementCatalog: ManagementCatalog? = null
@@ -75,6 +76,10 @@ object CloudBackupManager {
         if (last <= 0L) return "Cloud backup: connected"
         val whenText = android.text.format.DateUtils.getRelativeTimeSpanString(last, System.currentTimeMillis(), 60_000L)
         return "Cloud backup: saved $whenText"
+    }
+
+    fun setPlaybackActive(active: Boolean) {
+        playbackActive.set(active)
     }
 
     suspend fun connect(context: Context, rawCode: String): Result<ConnectResult> = withContext(Dispatchers.IO) {
@@ -204,6 +209,15 @@ object CloudBackupManager {
         }
         val now = System.currentTimeMillis()
         if (stateChanged || now - lastManagementStateUpload.get() >= MANAGEMENT_STATE_INTERVAL_MS) {
+            // A full management snapshot can contain tens of thousands of channels and
+            // allocate several megabytes of JSON. On lower-memory TV devices that work
+            // causes stop-the-world GC pauses visible as playback freezes/catch-up jumps.
+            // Heartbeats and dashboard commands still run while playing; defer only the
+            // expensive state build/upload until playback is inactive.
+            if (playbackActive.get()) {
+                Log.d(TAG, "Management state upload deferred during playback")
+                return
+            }
             uploadManagementState(context, token, forceCatalogRefresh = stateChanged)
             lastManagementStateUpload.set(now)
             if (stateChanged) runCatching { upload(context).getOrThrow() }

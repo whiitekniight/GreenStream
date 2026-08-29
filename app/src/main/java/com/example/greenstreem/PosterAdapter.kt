@@ -24,10 +24,9 @@ class PosterAdapter(
     private val requestedMoviePosterIds = mutableSetOf<Int>()
 
     private val posterOptions = RequestOptions()
-        .format(DecodeFormat.PREFER_RGB_565)
-        .disallowHardwareConfig()
-        .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-        .override(124, 180)
+        .format(DecodeFormat.PREFER_ARGB_8888)
+        .diskCacheStrategy(DiskCacheStrategy.ALL)
+        .override(320, 480)
         .centerCrop()
         .dontAnimate()
 
@@ -96,7 +95,6 @@ class PosterAdapter(
         Glide.with(holder.itemView.context)
             .load(imageUrl)
             .placeholder(android.R.drawable.ic_menu_report_image)
-            .thumbnail(0.25f)
             .apply(posterOptions)
             .into(holder.ivPoster)
 
@@ -122,11 +120,12 @@ class PosterAdapter(
         holder.itemView.setOnFocusChangeListener { _, hasFocus ->
             if (hasFocus) {
                 holder.tvTitle.isSelected = true
+                holder.itemView.alpha = 1f
                 holder.itemView.animate()
-                    .scaleX(1.0f)
-                    .scaleY(1.0f)
-                    .translationZ(4f)
-                    .setDuration(150)
+                    .scaleX(1.08f)
+                    .scaleY(1.08f)
+                    .translationZ(12f)
+                    .setDuration(120)
                     .start()
                 val pos = holder.bindingAdapterPosition
                 if (pos != RecyclerView.NO_POSITION) {
@@ -134,11 +133,12 @@ class PosterAdapter(
                 }
             } else {
                 holder.tvTitle.isSelected = false
+                holder.itemView.alpha = 0.92f
                 holder.itemView.animate()
                     .scaleX(1.0f)
                     .scaleY(1.0f)
                     .translationZ(0f)
-                    .setDuration(150)
+                    .setDuration(120)
                     .start()
             }
         }
