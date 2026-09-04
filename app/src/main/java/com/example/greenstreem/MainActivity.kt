@@ -5847,13 +5847,18 @@ class MainActivity : FragmentActivity() {
         if (itemCount == 0) return false
 
         val currentPos = resolveFocusedEpgRowPosition()
+        val horizontalScrollX = epgScrollSync.getCurrentX()
         val targetPos = if (isDown) {
             if (currentPos >= itemCount - 1) 0 else currentPos + 1
         } else {
             if (currentPos <= 0) itemCount - 1 else currentPos - 1
         }
 
-        focusEpgRowAt(targetPos)
+        focusEpgRowAt(
+            position = targetPos,
+            timelineX = currentTimeContentX(),
+            preservedHorizontalScrollX = horizontalScrollX
+        )
         return true
     }
 
@@ -5875,7 +5880,9 @@ class MainActivity : FragmentActivity() {
         position: Int,
         attempt: Int = 0,
         requestToken: Int = -1,
-        alignTop: Boolean = false
+        alignTop: Boolean = false,
+        timelineX: Int? = null,
+        preservedHorizontalScrollX: Int? = null
     ) {
         val token = if (requestToken == -1) {
             ++epgFocusRequestToken
@@ -5912,19 +5919,34 @@ class MainActivity : FragmentActivity() {
                 if (attempt < 6) {
                     rvContent.postDelayed({
                         if (token == epgFocusRequestToken) {
-                            focusEpgRowAt(targetPos, attempt + 1, token, alignTop)
+                            focusEpgRowAt(
+                                position = targetPos,
+                                attempt = attempt + 1,
+                                requestToken = token,
+                                alignTop = alignTop,
+                                timelineX = timelineX,
+                                preservedHorizontalScrollX = preservedHorizontalScrollX
+                            )
                         }
                     }, 50)
                 }
                 return@post
             }
-            val timelineX = currentTimeContentX()
-            val timelineIndex = findProgramIndexForTimelineX(holder.container, timelineX)
+            val targetTimelineX = timelineX ?: currentTimeContentX()
+            val timelineIndex = findProgramIndexForTimelineX(holder.container, targetTimelineX)
             val focusTarget = holder.container.getChildAt(timelineIndex)
                 ?: holder.container.getChildAt(0)
                 ?: holder.itemView
             if (token == epgFocusRequestToken) {
                 focusTarget.requestFocus()
+                preservedHorizontalScrollX?.let { scrollX ->
+                    epgScrollSync.scrollAllTo(scrollX)
+                    focusTarget.post {
+                        if (token == epgFocusRequestToken) {
+                            epgScrollSync.scrollAllTo(scrollX)
+                        }
+                    }
+                }
             }
         }
     }

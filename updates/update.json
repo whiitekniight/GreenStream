@@ -1,7 +1,7 @@
 {
-  "versionCode": 74,
-  "versionName": "1.9.38",
-  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.38",
-  "notes": "Improves series playback: Start Now responds on the first click, auto-next defaults on, and Auto Off returns to the episode list instead of a black screen."
+  "versionCode": 75,
+  "versionName": "1.9.39",
+  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.39",
+  "notes": "Keeps the live TV guide aligned while scrolling up and down through channels, including rows with short program tiles."
 }
 
