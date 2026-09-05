@@ -16,6 +16,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SwitchCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -61,7 +62,13 @@ class BackupRestoreActivity : AppCompatActivity() {
             if (state.connected) {
                 list.add(Row.Action("Save current setup to this restore code", Action.BACKUP_CLOUD))
                 list.add(Row.Action("Restore saved setup from this code", Action.RESTORE_CLOUD))
-                list.add(Row.Action(CloudBackupScheduler.scheduleDescription(this@BackupRestoreActivity), Action.TOGGLE_AUTO_BACKUP))
+                list.add(
+                    Row.Toggle(
+                        title = "Automatic daily cloud backup",
+                        checked = CloudBackupScheduler.isEnabled(this@BackupRestoreActivity),
+                        action = Action.TOGGLE_AUTO_BACKUP
+                    )
+                )
                 if (CloudBackupScheduler.isEnabled(this@BackupRestoreActivity)) {
                     list.add(Row.Action("Change automatic backup time", Action.CHANGE_AUTO_BACKUP_TIME))
                     CloudBackupScheduler.nextBackupDescription(this@BackupRestoreActivity)
@@ -81,6 +88,7 @@ class BackupRestoreActivity : AppCompatActivity() {
     private fun onRowClick(row: Row) {
         when (row) {
             is Row.Action -> handleAction(row.action)
+            is Row.Toggle -> handleAction(row.action)
             is Row.Info -> Unit
         }
     }
@@ -215,6 +223,11 @@ class BackupRestoreActivity : AppCompatActivity() {
 
     private sealed class Row {
         data class Action(val title: String, val action: com.example.greenstreem.BackupRestoreActivity.Action) : Row()
+        data class Toggle(
+            val title: String,
+            val checked: Boolean,
+            val action: com.example.greenstreem.BackupRestoreActivity.Action
+        ) : Row()
         data class Info(val title: String) : Row()
     }
 
@@ -239,11 +252,18 @@ class BackupRestoreActivity : AppCompatActivity() {
 
         class ViewHolder(view: android.view.View) : RecyclerView.ViewHolder(view) {
             val text: TextView = view.findViewById(android.R.id.text1)
+            val toggle: SwitchCompat? = view.findViewById(R.id.switchRestoreOption)
         }
+
+        override fun getItemViewType(position: Int): Int = if (items[position] is Row.Toggle) VIEW_TYPE_TOGGLE else VIEW_TYPE_TEXT
 
         override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): ViewHolder {
             val view = android.view.LayoutInflater.from(parent.context)
-                .inflate(android.R.layout.simple_list_item_1, parent, false)
+                .inflate(
+                    if (viewType == VIEW_TYPE_TOGGLE) R.layout.item_restore_toggle else android.R.layout.simple_list_item_1,
+                    parent,
+                    false
+                )
             return ViewHolder(view)
         }
 
@@ -251,6 +271,7 @@ class BackupRestoreActivity : AppCompatActivity() {
             val row = items[position]
             val title = when (row) {
                 is Row.Action -> row.title
+                is Row.Toggle -> row.title
                 is Row.Info -> row.title
             }
             holder.text.text = title
@@ -262,8 +283,14 @@ class BackupRestoreActivity : AppCompatActivity() {
             holder.itemView.setBackgroundResource(R.drawable.selector_button_bg)
             holder.itemView.setPadding(32, 24, 32, 24)
             holder.itemView.setOnClickListener(if (actionable) android.view.View.OnClickListener { onClickIndex(position) } else null)
+            holder.toggle?.isChecked = (row as? Row.Toggle)?.checked == true
         }
 
         override fun getItemCount(): Int = items.size
+
+        companion object {
+            private const val VIEW_TYPE_TEXT = 0
+            private const val VIEW_TYPE_TOGGLE = 1
+        }
     }
 }
