@@ -99,6 +99,7 @@ object CloudBackupManager {
             writeSecret(context, KEY_TOKEN, result.getString("deviceToken"))
             val updatedAt = result.optLong("backupUpdatedAt", 0L)
             if (updatedAt > 0L) prefs(context).edit().putLong(KEY_LAST_BACKUP, updatedAt * 1000L).apply()
+            CloudBackupScheduler.schedule(context)
             ConnectResult(result.optBoolean("hasBackup", false), updatedAt)
         }
     }

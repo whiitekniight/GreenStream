@@ -1,7 +1,7 @@
 {
-  "versionCode": 75,
-  "versionName": "1.9.39",
-  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.39",
-  "notes": "Keeps the live TV guide aligned while scrolling up and down through channels, including rows with short program tiles."
+  "versionCode": 76,
+  "versionName": "1.9.40",
+  "apkUrl": "https://greenstreemlabs.com/downloads/greenstreem-customer.apk?v=1.9.40",
+  "notes": "Adds scheduled automatic cloud backups for restore codes, simplifies the Restore Code screen, and links directly to the customer restore website."
 }
 

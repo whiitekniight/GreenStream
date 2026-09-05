@@ -19,6 +19,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 class GreenStreemApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        CloudBackupScheduler.scheduleAsync(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
                 activity.applyGreenStreemFullscreenSafely()
